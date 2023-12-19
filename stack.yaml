@@ -1,0 +1,9 @@
+resolver: lts-21.25
+
+packages:
+- .
+
+ghc-options:
+  "$everything": -O2 -threaded
+  "$locals": -Wall
+  "$targets": '"-Werror -with-rtsopts=\"-N -qg1 -s\""'

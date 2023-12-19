@@ -3,5 +3,6 @@
 *.acmi*
 *.prof
 bms-tacview-filter
+/.stack-work/
 /dist-newstyle/
 /result

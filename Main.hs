@@ -19,6 +19,7 @@ import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Word
 import Options.Applicative
+import System.IO
 
 import GHC.Stack
 
@@ -32,10 +33,16 @@ parseArgs = pure Args
 
 -- --help text
 main :: IO ()
-main = parser >>= runFilter where
-    parser = customExecParser (prefs showHelpOnError) parseInfo
-    parseInfo = info (parseArgs <**> helper) $
-        progDesc "Reads ACMI on stdin, filters crap, writes to stdout"
+main = do
+    -- lol Windows
+    hSetNewlineMode stdin noNewlineTranslation
+    hSetNewlineMode stdout noNewlineTranslation
+    hSetNewlineMode stderr noNewlineTranslation
+
+    let parser = customExecParser (prefs showHelpOnError) parseInfo
+        parseInfo = info (parseArgs <**> helper) $
+            progDesc "Reads ACMI on stdin, filters crap, writes to stdout"
+    parser >>= runFilter
 
 -- Boring I/O stuff: read stdin and split it into a list of lines.
 inputLines :: IO [Text]
