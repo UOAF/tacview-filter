@@ -1,0 +1,7 @@
+*.hi
+*.o
+*.acmi*
+*.prof
+bms-tacview-filter
+/dist-newstyle/
+/result
