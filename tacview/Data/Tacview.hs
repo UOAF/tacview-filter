@@ -1,5 +1,8 @@
+{-# LANGUAGE DeriveGeneric #-}
+
 module Data.Tacview where
 
+import Control.DeepSeq
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Maybe
@@ -8,6 +11,7 @@ import Data.Text qualified as T
 import Data.Text.Read qualified as T
 import Data.Word
 
+import GHC.Generics
 import GHC.Stack
 
 type TacId = Word64
@@ -35,7 +39,9 @@ data LineIds =
     -- | An event line: @0,Event=...|id1|id2|...@
     --   This can have multiple IDs!
     EventLine (HashSet TacId)
-    deriving (Show)
+    deriving (Show, Generic)
+
+instance NFData LineIds
 
 -- | Parse the `LineIds` of the line.
 --   (or `Nothing` if it's not a line that affects filtering)

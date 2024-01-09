@@ -9,12 +9,14 @@ module Control.Concurrent.Channel(
     newChannelIO,
     readChannel,
     writeChannel,
+    evalWriteChannel,
     closeChannel,
     pipeline
 ) where
 
 import Control.Concurrent.Async
 import Control.Concurrent.STM
+import Control.DeepSeq
 import Control.Exception
 import Numeric.Natural
 
@@ -49,6 +51,10 @@ writeChannel c !v = do
     if wasClosed
         then error "write to closed channel"
         else writeTBQueue c.q v
+
+evalWriteChannel :: NFData a => Channel a -> a -> IO ()
+evalWriteChannel c v =
+    evaluate (force v) >>= (atomically . writeChannel c)
 
 closeChannel :: Channel a -> STM ()
 closeChannel c = writeTVar c.closed True
