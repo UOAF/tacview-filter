@@ -7,12 +7,36 @@ maintainer:         matt@bitbashing.io
 category:           Data
 build-type:         Simple
 
+common shared
+    ghc-options: -Wall -threaded -fPIC
+    default-language: Haskell2010
+    default-extensions: ImportQualifiedPost OverloadedStrings
+
+library channel
+    import: shared
+    exposed-modules: Control.Concurrent.Channel
+    hs-source-dirs: channel
+    build-depends: base,
+                   async,
+                   stm
+
+library tacview
+    import: shared
+    exposed-modules: Data.Tacview
+    hs-source-dirs: tacview
+    build-depends: base,
+                   text,
+                   unordered-containers
+
 executable bms-tacview-filter
-    ghc-options: -Wall -threaded "-with-rtsopts=-N -qg1 -s"
+    import: shared
+    ghc-options: "-with-rtsopts=-N -qg1 -s"
     main-is: Main.hs
     build-depends: base,
+                   channel,
+                   tacview,
                    optparse-applicative,
+                   stm,
                    text,
                    unordered-containers,
                    vector
-    default-language: Haskell2010

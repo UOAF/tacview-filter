@@ -1,4 +1,4 @@
-let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/a9efc0ae3a607eaebc6e841ca3960134e9034077.tar.gz";
+let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/7448cb3337456fbd8208b1c8f1db6b33654e03c0.tar.gz";
     haskellNix = import haskellSrc {};
     # Import nixpkgs and pass the haskell.nix provided nixpkgsArgs
     pkgs = import
@@ -19,5 +19,4 @@ in pkgs.haskell-nix.project {
       enableLibraryProfiling = true;
     }
   ];
-  compiler-nix-name = "ghc948";
 }
