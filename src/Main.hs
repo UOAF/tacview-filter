@@ -52,11 +52,10 @@ runFilter _ = do
     -- and passes the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
 
-    -- We compose this pipeline back to front, though.
-    -- TODO: come up with a more readable way to do this front to back.
-    let filterAndWrite c = pipeline (filterLines startState c) (writer 0)
-        butFirstDedupTimes c = pipeline (timeDedup 0 0 0.0 c) filterAndWrite
-    pipeline reader butFirstDedupTimes
+    let dedupTimes sink = pipeline reader (\source -> timeDedup 0 0 0.0 source sink)
+        thenFilter sink = pipeline dedupTimes (\source -> filterLines startState source sink)
+
+    pipeline thenFilter (writer 0)
 
 -- Boring I/O stuff start and end our pipeline:
 
