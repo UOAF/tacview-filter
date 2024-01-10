@@ -39,6 +39,7 @@ executable bms-tacview-filter
                    Utils
     build-depends: base,
                    channel,
+                   containers,
                    tacview,
                    optparse-applicative,
                    stm,
