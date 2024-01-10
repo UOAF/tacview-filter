@@ -33,7 +33,10 @@ library tacview
 executable bms-tacview-filter
     import: shared
     ghc-options: "-with-rtsopts=-N -s"
+    hs-source-dirs: src
     main-is: Main.hs
+    other-modules: Ignores,
+                   Utils
     build-depends: base,
                    channel,
                    tacview,
