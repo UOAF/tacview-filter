@@ -1,8 +1,11 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StrictData #-}
 
 module Data.Tacview where
 
 import Control.DeepSeq
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Maybe
@@ -10,6 +13,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Read qualified as T
 import Data.Word
+import Data.Vector (Vector)
+import Data.Vector qualified as V
 
 import GHC.Generics
 import GHC.Stack
@@ -56,3 +61,22 @@ idsOf l
         Just i -> Just $ PropLine i
         Nothing -> Nothing
 
+data Property = Property Text | Position (Vector Text)
+
+parseProperty :: Text -> (Text, Property)
+parseProperty pl = (k, p) where
+    (k, vWithEq) = T.breakOn "=" pl
+    v = T.tail vWithEq
+    p = if k == "T"
+        then Position . V.fromList . T.splitOn "|" $ v
+        else Property v
+
+type ParsedProperties = HashMap Text Property
+
+lineProperties :: Text -> ParsedProperties
+lineProperties t = HM.fromList $ fmap parseProperty (tail . T.splitOn "," $ t)
+
+updateProperty :: Property -> Property -> Property
+updateProperty (Property _old) new@(Property _) = new
+updateProperty (Position old) (Position new) = error "TODO: merge positions"
+updateProperty _ _ = error "Mixing properties and positions"

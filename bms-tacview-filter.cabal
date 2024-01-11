@@ -28,7 +28,8 @@ library tacview
     build-depends: base,
                    deepseq,
                    text,
-                   unordered-containers
+                   unordered-containers,
+                   vector
 
 executable bms-tacview-filter
     import: shared
