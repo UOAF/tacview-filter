@@ -65,13 +65,6 @@ reader c = do
         T.getLine >>= evalWriteChannel c
         reader c
 
-writer :: Int -> Channel Text -> IO ()
-writer !count chan = atomically (readChannel chan) >>= \case
-    Nothing -> hPutStrLn stderr $ show count <> " remained"
-    Just l -> do
-        T.putStrLn l
-        writer (count + 1) chan
-
 -- | Drop adjacent timestamps, then write the lines we end up with.
 timeDropAndWrite :: Int -> Int -> Maybe Text -> Channel Text -> IO ()
 timeDropAndWrite !count !total lastTime source = atomically (readChannel source) >>= \case
