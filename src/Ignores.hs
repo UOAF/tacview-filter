@@ -89,8 +89,8 @@ removeId i fs = fs { ifsIgnored = newIg, ifsEventsIgnored = newEvIg } where
 -- We can ignore an event if all of its IDs are in the
 -- "ignored" or "events ignored" sets
 ignoreableEvent :: HashSet TacId -> IgnoreFilterState -> Bool
-ignoreableEvent es fs = all (`HS.member` toIgnore) es where
-    toIgnore = HS.union fs.ifsIgnored fs.ifsEventsIgnored
+ignoreableEvent es fs = not (HS.null toIgnore) && all (`HS.member` toIgnore) es
+    where toIgnore = HS.union fs.ifsIgnored fs.ifsEventsIgnored
 
 unlessMaybe :: Bool -> a -> Maybe a
 unlessMaybe b v = if b then Nothing else Just v
