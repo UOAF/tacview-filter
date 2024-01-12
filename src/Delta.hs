@@ -148,7 +148,7 @@ deltas' now mid l !objects source sink = let
                 axeIt (head $ HS.toList es)
             else passthrough now
         Nothing -> let
-            newTime =if T.isPrefixOf "#" l -- If it's a #<time> line
+            newTime = if T.isPrefixOf "#" l -- If it's a #<time> line
                 then parseTime l
                 else now
             in passthrough newTime

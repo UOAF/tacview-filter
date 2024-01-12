@@ -33,7 +33,8 @@ parseId t = case T.hexadecimal t of
 maybeId :: Text -> Maybe TacId
 maybeId t = case T.hexadecimal t of
     Left _ -> Nothing
-    Right (v, _) -> Just v
+    -- "File" parses as (0xf, "ile"). Let's not do that
+    Right (v, rest) -> if rest == "" || T.isPrefixOf "," rest then Just v else Nothing
 
 -- | For filtering purposes, each line is either:
 data LineIds =
