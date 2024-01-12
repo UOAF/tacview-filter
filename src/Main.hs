@@ -6,6 +6,7 @@ module Main where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
+import Control.Monad
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IM
 import Data.HashMap.Strict qualified as HM
@@ -56,7 +57,7 @@ runFilter _ = do
         thenDeltas sink = pipeline ignore (\source -> deltas 0.0 HM.empty source sink)
         thenDropTimes = pipeline thenDeltas (timeDropAndWrite 0 0 Nothing)
 
-    thenDropTimes
+    void thenDropTimes
 
 -- Boring I/O stuff start and end our pipeline:
 
