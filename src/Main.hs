@@ -59,8 +59,9 @@ runFilter _ = do
 
     let dedupTimes sink = pipeline reader (\source -> timeDedup 0 0 0.0 source sink)
         thenFilter sink = pipeline dedupTimes (\source -> filterLines startState source sink)
+        thenDeltas sink = pipeline thenFilter (\source -> deltas HM.empty source sink)
 
-    pipeline thenFilter (dtHistogram HM.empty HM.empty HM.empty 0)
+    pipeline thenDeltas (writer 0)
 
 -- Boring I/O stuff start and end our pipeline:
 
@@ -72,10 +73,10 @@ reader c = do
     mapM_ (evalWriteChannel c) strictLines
 
 -- | When we're all done, write the lines we ended up with.
-writer :: Int -> Channel (Maybe LineIds, Text) -> IO ()
+writer :: Int -> Channel Text -> IO ()
 writer !count chan = atomically (readChannel chan) >>= \case
     Nothing -> hPutStrLn stderr $ show count <> " remained"
-    Just (_mid, l) -> do
+    Just l -> do
         T.putStrLn l
         writer (count + 1) chan
 
@@ -83,6 +84,29 @@ writer !count chan = atomically (readChannel chan) >>= \case
 addTime :: Double -> IntMap Int -> IntMap Int
 addTime t = IM.insertWith (+) timeKey 1 where
     timeKey = round $ t * 100
+
+deltas :: HashMap TacId Properties -> Channel (Maybe LineIds, Text) -> Channel Text -> IO ()
+deltas !objects source sink = atomically (readChannel source) >>= \case
+    Nothing -> pure ()
+    Just (i, l) -> case i of
+        Just (PropLine p) -> do
+            let props = lineProperties l
+                prev = objects HM.!? p
+                newProps = case prev of
+                    Nothing -> props
+                    Just old -> updateProperties old props
+                deltaEncoded = case prev of
+                    Nothing -> props
+                    Just old -> deltaProperties old props
+                toWrite = (T.pack . printf "%x," $ p) <> showProperties deltaEncoded
+            evalWriteChannel sink toWrite
+            deltas (HM.insert p newProps objects) source sink
+        Just (RemLine p) -> do
+            evalWriteChannel sink l
+            deltas (HM.delete p objects) source sink
+        _other -> do
+            evalWriteChannel sink l
+            deltas objects source sink
 
 dtHistogram
     :: HashMap TacId Text
