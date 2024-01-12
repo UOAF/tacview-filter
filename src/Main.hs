@@ -54,9 +54,9 @@ runFilter _ = do
 
     let ignore sink = pipeline reader (\source -> filterLines startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas 0.0 HM.empty source sink)
-        thenDropTimes sink = pipeline thenDeltas (\source -> timeDrop 0 0 Nothing source sink)
+        thenDropTimes = pipeline thenDeltas (timeDropAndWrite 0 0 Nothing)
 
-    pipeline thenDropTimes (writer 0)
+    thenDropTimes
 
 -- Boring I/O stuff start and end our pipeline:
 
@@ -67,7 +67,6 @@ reader c = do
     let strictLines = TL.toStrict <$> lazyLines
     mapM_ (evalWriteChannel c) strictLines
 
--- | When we're all done, write the lines we ended up with.
 writer :: Int -> Channel Text -> IO ()
 writer !count chan = atomically (readChannel chan) >>= \case
     Nothing -> hPutStrLn stderr $ show count <> " remained"
@@ -80,17 +79,17 @@ addTime :: Double -> IntMap Int -> IntMap Int
 addTime t = IM.insertWith (+) timeKey 1 where
     timeKey = round $ t * 100
 
--- | Drop adjacent timestamps
-timeDrop :: Int -> Int -> Maybe Text -> Channel Text -> Channel Text -> IO ()
-timeDrop !count !total lastTime source sink = atomically (readChannel source) >>= \case
-    Nothing -> hPutStrLn stderr $ printf "%s lines were duplicate timestamps. From the rest,"
-        (percentage count total)
+-- | Drop adjacent timestamps, then write the lines we end up with.
+timeDropAndWrite :: Int -> Int -> Maybe Text -> Channel Text -> IO ()
+timeDropAndWrite !count !total lastTime source = atomically (readChannel source) >>= \case
+    Nothing -> do
+        hPutStrLn stderr $ printf "%s lines were extra timestamps." (percentage count total)
     Just l -> if T.isPrefixOf "#" l -- If it's a #<time> line
-        then timeDrop (count + 1) (total + 1) (Just l) source sink
+        then timeDropAndWrite (count + 1) (total + 1) (Just l) source
         else do -- If it's not a time line, drop the one we've been holding.
-            mapM_ (evalWriteChannel sink) lastTime
-            evalWriteChannel sink l
+            mapM_ T.putStrLn lastTime
+            T.putStrLn l
             let timesWritten = if isJust lastTime then 1 else 0
-            timeDrop (count - timesWritten) (total + 1) Nothing source sink
+            timeDropAndWrite (count - timesWritten) (total + 1) Nothing source
 
 
