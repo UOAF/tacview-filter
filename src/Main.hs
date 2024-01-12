@@ -7,8 +7,6 @@ module Main where
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Control.Monad
-import Data.IntMap.Strict (IntMap)
-import Data.IntMap.Strict qualified as IM
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.Text (Text)
@@ -73,11 +71,6 @@ writer !count chan = atomically (readChannel chan) >>= \case
     Just l -> do
         T.putStrLn l
         writer (count + 1) chan
-
--- | Add a given time to the given histogram
-addTime :: Double -> IntMap Int -> IntMap Int
-addTime t = IM.insertWith (+) timeKey 1 where
-    timeKey = round $ t * 100
 
 -- | Drop adjacent timestamps, then write the lines we end up with.
 timeDropAndWrite :: Int -> Int -> Maybe Text -> Channel Text -> IO ()
