@@ -86,44 +86,6 @@ addTime :: Double -> IntMap Int -> IntMap Int
 addTime t = IM.insertWith (+) timeKey 1 where
     timeKey = round $ t * 100
 
-dtHistogram
-    :: HashMap TacId Text
-    -> HashMap TacId Double
-    -> HashMap TacId (IntMap Int)
-    -> Double
-    -> Channel (Maybe LineIds, Text)
-    -> IO ()
-dtHistogram !firstMention !lastTimes !histogram !time source =
-    atomically (readChannel source) >>= \case
-        Nothing -> do
-            let printHist (tid, counts) = do
-                    T.putStrLn $ fromJust (firstMention HM.!? tid) <> ":"
-                    mapM_ printCount (IM.toAscList counts)
-                printCount (t, c) = do
-                    let t' = (fromIntegral t :: Double) / 100
-                    printf "  %f: %d\n" t' c
-            mapM_ printHist (HM.toList histogram)
-
-        Just (i, l) -> if T.isPrefixOf "#" l -- If it's a #<time> line
-            then -- Parse the new time and move on
-                dtHistogram firstMention lastTimes histogram (parseTime l) source
-            else case i of
-                Just (PropLine p) -> let
-                    -- When did we last see this object?
-                    prev = fromMaybe 0 $ lastTimes HM.!? p
-                    -- How long has it been?
-                    dt = time - prev
-                    -- Keep track of its first mention (chucking duplicates).
-                    newMentions = HM.insertWith (\_new old -> old) p l firstMention
-                    -- The last time we saw it was right meow.
-                    newLastTimes = HM.insert p time lastTimes
-                    -- Add the current dt to our histogram (or start a new one)
-                    updatedEntry = addTime dt $ fromMaybe IM.empty (histogram HM.!? p)
-                    newHistogram = HM.insert p updatedEntry histogram
-                    in dtHistogram newMentions newLastTimes newHistogram time source
-                _other -> dtHistogram firstMention lastTimes histogram time source
-
-
 -- | Pull the (#) off the front of the line and parse the rest as a double.
 parseTime :: HasCallStack => Text -> Double
 parseTime t = case T.rational (T.tail t) of
