@@ -99,7 +99,7 @@ deltas !objects source sink = atomically (readChannel source) >>= \case
                     Nothing -> props
                     Just old -> deltaProperties old props
                 toWrite = (T.pack . printf "%x," $ p) <> showProperties deltaEncoded
-            evalWriteChannel sink toWrite
+            unless (HM.null deltaEncoded) $ evalWriteChannel sink toWrite
             deltas (HM.insert p newProps objects) source sink
         Just (RemLine p) -> do
             evalWriteChannel sink l
