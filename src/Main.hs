@@ -14,8 +14,6 @@ import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Data.Text.Lazy qualified as TL
-import Data.Text.Lazy.IO qualified as TL
 import Options.Applicative
 import System.IO
 import Text.Printf
@@ -64,9 +62,10 @@ runFilter _ = do
 -- | Read stdin and split it into a list of lines
 reader :: Channel Text -> IO ()
 reader c = do
-    lazyLines <- TL.lines <$> TL.getContents
-    let strictLines = TL.toStrict <$> lazyLines
-    mapM_ (evalWriteChannel c) strictLines
+    eof <- isEOF
+    unless eof $ do
+        T.getLine >>= evalWriteChannel c
+        reader c
 
 writer :: Int -> Channel Text -> IO ()
 writer !count chan = atomically (readChannel chan) >>= \case
