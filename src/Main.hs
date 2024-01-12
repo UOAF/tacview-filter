@@ -25,6 +25,7 @@ import Text.Printf
 
 import GHC.Stack
 
+import Delta
 import Ignores
 import Utils
 
@@ -84,29 +85,6 @@ writer !count chan = atomically (readChannel chan) >>= \case
 addTime :: Double -> IntMap Int -> IntMap Int
 addTime t = IM.insertWith (+) timeKey 1 where
     timeKey = round $ t * 100
-
-deltas :: HashMap TacId Properties -> Channel (Maybe LineIds, Text) -> Channel Text -> IO ()
-deltas !objects source sink = atomically (readChannel source) >>= \case
-    Nothing -> pure ()
-    Just (i, l) -> case i of
-        Just (PropLine p) -> do
-            let props = lineProperties l
-                prev = objects HM.!? p
-                newProps = case prev of
-                    Nothing -> props
-                    Just old -> updateProperties old props
-                deltaEncoded = case prev of
-                    Nothing -> props
-                    Just old -> deltaProperties old props
-                toWrite = (T.pack . printf "%x," $ p) <> showProperties deltaEncoded
-            unless (HM.null deltaEncoded) $ evalWriteChannel sink toWrite
-            deltas (HM.insert p newProps objects) source sink
-        Just (RemLine p) -> do
-            evalWriteChannel sink l
-            deltas (HM.delete p objects) source sink
-        _other -> do
-            evalWriteChannel sink l
-            deltas objects source sink
 
 dtHistogram
     :: HashMap TacId Text
