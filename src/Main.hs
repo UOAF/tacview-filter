@@ -6,24 +6,18 @@ module Main where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
-import Control.Monad
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IM
-import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe
-import Data.Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Data.Text.Read qualified as T
 import Data.Text.Lazy qualified as TL
 import Data.Text.Lazy.IO qualified as TL
 import Options.Applicative
 import System.IO
 import Text.Printf
-
-import GHC.Stack
 
 import Delta
 import Ignores
@@ -58,11 +52,11 @@ runFilter _ = do
     -- and passes the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
 
-    let dedupTimes sink = pipeline reader (\source -> timeDedup 0 0 0.0 source sink)
-        thenFilter sink = pipeline dedupTimes (\source -> filterLines startState source sink)
-        thenDeltas sink = pipeline thenFilter (\source -> deltas HM.empty source sink)
+    let ignore sink = pipeline reader (\source -> filterLines startState source sink)
+        thenDeltas sink = pipeline ignore (\source -> deltas 0.0 HM.empty source sink)
+        thenDropTimes sink = pipeline thenDeltas (\source -> timeDrop 0 0 Nothing source sink)
 
-    pipeline thenDeltas (writer 0)
+    pipeline thenDropTimes (writer 0)
 
 -- Boring I/O stuff start and end our pipeline:
 
@@ -86,28 +80,17 @@ addTime :: Double -> IntMap Int -> IntMap Int
 addTime t = IM.insertWith (+) timeKey 1 where
     timeKey = round $ t * 100
 
--- | Pull the (#) off the front of the line and parse the rest as a double.
-parseTime :: HasCallStack => Text -> Double
-parseTime t = case T.rational (T.tail t) of
-    Left e -> error (T.unpack t <> ": " <> e)
-    Right (v, _) -> v
-
--- | Time deduplication filter: Keep track of the last timestamp we saw,
--- and if we see a duplicate one, skip it.
-timeDedup :: Int -> Int -> Double -> Channel Text -> Channel Text -> IO ()
-timeDedup !count !total !time source sink = atomically (readChannel source) >>= \case
+-- | Drop adjacent timestamps
+timeDrop :: Int -> Int -> Maybe Text -> Channel Text -> Channel Text -> IO ()
+timeDrop !count !total lastTime source sink = atomically (readChannel source) >>= \case
     Nothing -> hPutStrLn stderr $ printf "%s lines were duplicate timestamps. From the rest,"
         (percentage count total)
     Just l -> if T.isPrefixOf "#" l -- If it's a #<time> line
-        then do
-            let newTime = parseTime l
-                duplicateTime = time == newTime
-                newCount = if duplicateTime then count + 1 else count
-            -- Skip this line if it's a duplicate
-            unless duplicateTime $ evalWriteChannel sink l
-            timeDedup newCount (total + 1) newTime source sink
-        else do -- pass through
+        then timeDrop (count + 1) (total + 1) (Just l) source sink
+        else do -- If it's not a time line, drop the one we've been holding.
+            mapM_ (evalWriteChannel sink) lastTime
             evalWriteChannel sink l
-            timeDedup count (total + 1) time source sink
+            let timesWritten = if isJust lastTime then 1 else 0
+            timeDrop (count - timesWritten) (total + 1) Nothing source sink
 
 

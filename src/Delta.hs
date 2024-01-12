@@ -1,10 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 
 module Delta (deltas) where
 
-import Control.Monad
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Control.Exception
@@ -14,51 +15,140 @@ import Data.HashSet qualified as HS
 import Data.Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Read qualified as T
 import Text.Printf
 
-deltas :: HashMap TacId Properties -> Channel (Maybe LineIds, Text) -> Channel Text -> IO ()
-deltas !objects source sink = atomically (readChannel source) >>= \case
-    Nothing -> pure ()
-    Just (i, l) -> deltas' i l objects source sink
+import GHC.Stack
+
+data ObjectState = ObjectState {
+    osCurrent :: Properties,
+    osLastWritten :: Properties,
+    osNextWrite :: Double,
+    osRate :: Double
+}
+
+updateObject :: Maybe ObjectState -> Double -> TacId -> Properties -> (ObjectState, Maybe Text)
+updateObject maybePrevious now i props = case maybePrevious of
+    -- There was no previous record of this object.
+    -- Everything becomes the property set we're given,
+    -- and we should write a line immediately.
+    Nothing -> let
+        osCurrent = props
+        osLastWritten = props
+        osRate = rateOf $
+            -- showProperty is a no-op for non-position properties,
+            -- which this had better be.
+            showProperty <$> props HM.!? "Type"
+        osNextWrite = now + osRate
+        in (ObjectState{..}, Just $ showLine i props)
+    -- We have a previous record of this object.
+    Just prev -> let
+        -- Merge its properties into the current set,
+        merged = updateProperties prev.osCurrent props
+        -- and decide if it's been long enough we should write a new line.
+        in if now >= prev.osNextWrite
+            then let
+                -- NB: next.current == next.lastWritten (since we're writing now!)
+                next = prev {
+                    osCurrent = merged,
+                    osLastWritten = merged,
+                    osNextWrite = now + prev.osRate
+                }
+                -- ...but be sure to delta lastWritten as it just was
+                in (next, deltaEncode i prev.osLastWritten merged)
+            else (prev { osCurrent = merged }, Nothing)
+
+-- | Delta-encode an object, generating a line with only properties that changed.
+-- Returns Just the line, or Nothing if there's no changes.
+deltaEncode :: TacId -> Properties -> Properties -> Maybe Text
+deltaEncode i old new = let
+    deltaProps = deltaProperties old new
+    in if HM.null deltaProps
+        -- Don't write if the delta-encoded version is empty (nothing changed).
+        then Nothing
+        else Just $ showLine i deltaProps
+
+showLine :: TacId -> Properties -> Text
+showLine i props = (T.pack . printf "%x," $ i) <> showProperties props
+
+-- | Update rates of various object types, or 1 Hz by default.
+-- Uses recommendations from https://www.tacview.net/documentation/realtime/en/
+rateOf :: Maybe Text -> Double
+rateOf (Just l)
+    | T.isInfixOf "FixedWing" l = 1 / 10
+    | T.isInfixOf "Missile" l = 1 / 8
+    | T.isInfixOf "Air" l = 1 / 5
+    | T.isInfixOf "Projectile" l = 1 / 2
+    | T.isInfixOf "Bomb" l = 1 / 2
+    | T.isInfixOf "Decoy" l = 1 / 2
+    | T.isInfixOf "Shrapnel" l = 1 / 2
+    | T.isInfixOf "Ground" l = 1 / 2
+    | otherwise = 1.0
+rateOf Nothing = 1.0
+
+-- We might not have written in in a bit,
+-- so make sure its last known state goes out.
+closeOut :: Channel Text -> (TacId, ObjectState) -> IO ()
+closeOut sink (i, o) = mapM_ (evalWriteChannel sink) $
+    deltaEncode i o.osLastWritten o.osCurrent
+
+-- | Pull the (#) off the front of the line and parse the rest as a double.
+parseTime :: HasCallStack => Text -> Double
+parseTime t = case T.rational (T.tail t) of
+    Left e -> error (T.unpack t <> ": " <> e)
+    Right (v, _) -> v
+
+deltas
+    :: Double
+    -> HashMap TacId ObjectState
+    -> Channel (Maybe LineIds, Text)
+    -> Channel Text -> IO ()
+deltas now !objects source sink = atomically (readChannel source) >>= \case
+    -- Delta-encode all remaining objects on the way out
+    -- so we don't drop any last-second changes.
+    Nothing -> mapM_ (closeOut sink) $ HM.toList objects
+    Just (mid, l) -> deltas' now mid l objects source sink
 
 deltas'
-    :: Maybe LineIds
+    :: Double
+    -> Maybe LineIds
     -> Text
-    -> HashMap TacId Properties
+    -> HashMap TacId ObjectState
     -> Channel (Maybe LineIds, Text)
     -> Channel Text
     -> IO ()
-deltas' mid l !objects source sink = let
+deltas' now mid l !objects source sink = let
     -- Remove the object from the set we're tracking.
-    axeIt i = do
+    axeIt x = do
+        -- We might not have written in in a bit,
+        -- so make sure its last known state goes out.
+        case objects HM.!? x of
+            Just going -> closeOut sink (x, going)
+            Nothing -> pure ()
         evalWriteChannel sink l
-        deltas (HM.delete i objects) source sink
+        deltas now (HM.delete x objects) source sink
     -- Pass the line through without doing anything.
-    passthrough = do
+    passthrough t = do
         evalWriteChannel sink l
-        deltas objects source sink
+        deltas t objects source sink
     in case mid of
         Just (PropLine p) -> do
             -- Parse the line's properties and see if it's anything we're tracking.
             let props = lineProperties l
                 prev = objects HM.!? p
                 -- Update the properties we're tracking.
-                newProps = case prev of
-                    Nothing -> props
-                    Just old -> updateProperties old props
-                -- Delta-encode the line, omitting properties that haven't changed.
-                deltaEncoded = case prev of
-                    Nothing -> props
-                    Just old -> deltaProperties old props
-                toWrite = (T.pack . printf "%x," $ p) <> showProperties deltaEncoded
-            -- Don't write if the delta-encoded version is empty (nothing changed).
-            unless (HM.null deltaEncoded) $ evalWriteChannel sink toWrite
-            deltas (HM.insert p newProps objects) source sink
+                (newState, deltaLine) = updateObject prev now p props
+            mapM_ (evalWriteChannel sink) deltaLine
+            deltas now (HM.insert p newState objects) source sink
         Just (RemLine p) -> axeIt p
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
         Just (EventLine es) -> if T.isInfixOf "Event=LeftArea" l
             then assert (HS.size es == 1) $ do
                 axeIt (head $ HS.toList es)
-            else passthrough
-        _other -> passthrough
+            else passthrough now
+        Nothing -> let
+            newTime =if T.isPrefixOf "#" l -- If it's a #<time> line
+                then parseTime l
+                else now
+            in passthrough newTime

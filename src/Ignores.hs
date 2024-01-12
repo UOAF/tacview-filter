@@ -97,7 +97,11 @@ unlessMaybe b v = if b then Nothing else Just v
 
 -- Our filtered lines are the current line (or nothing if it's filtered out)
 -- plus the rest of the list, filtered. Recursion!
-filterLines :: IgnoreFilterState -> Channel Text -> Channel (Maybe LineIds, Text) -> IO ()
+filterLines
+    :: IgnoreFilterState
+    -> Channel Text
+    -> Channel (Maybe LineIds, Text)
+    -> IO ()
 filterLines !fs source sink = atomically (readChannel source) >>= \case
     Nothing -> hPutStrLn stderr $
         printf "%s lines dropped to ignoreObjects. From the rest,"

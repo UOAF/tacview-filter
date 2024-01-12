@@ -58,6 +58,7 @@ idsOf l
         ids = mapMaybe maybeId toks
         in Just . EventLine $ HS.fromList ids
     | T.isPrefixOf "-" l = Just . RemLine $ parseId (T.tail l)
+    | T.isPrefixOf "0," l = Nothing -- Don't try to parse global config.
     | otherwise = case maybeId l of
         Just i -> Just $ PropLine i
         Nothing -> Nothing
