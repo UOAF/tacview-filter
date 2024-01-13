@@ -4,7 +4,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StrictData #-}
 
-module Delta (deltas) where
+module Delta (deltas, DecimatedLines(..), DeltaFilterState, startState) where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
@@ -12,6 +12,7 @@ import Control.Exception
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
+import Data.Maybe
 import Data.Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -92,63 +93,78 @@ closeOut :: Channel Text -> (TacId, ObjectState) -> IO ()
 closeOut sink (i, o) = mapM_ (evalWriteChannel sink) $
     deltaEncode i o.osLastWritten o.osCurrent
 
+data DeltaFilterState = DeltaFilterState {
+    dfsObjects :: HashMap TacId ObjectState,
+    dfsNow :: Double,
+    dfsLinesDropped :: Int
+}
+
+startState :: DeltaFilterState
+startState = DeltaFilterState HM.empty 0.0 0
+
 -- | Pull the (#) off the front of the line and parse the rest as a double.
 parseTime :: HasCallStack => Text -> Double
 parseTime t = case T.rational (T.tail t) of
     Left e -> error (T.unpack t <> ": " <> e)
     Right (v, _) -> v
 
+newtype DecimatedLines = DecimatedLines Int
+
 deltas
-    :: Double
-    -> HashMap TacId ObjectState
+    :: DeltaFilterState
     -> Channel (Maybe LineIds, Text)
-    -> Channel Text -> IO ()
-deltas now !objects source sink = atomically (readChannel source) >>= \case
+    -> Channel Text -> IO DecimatedLines
+deltas !s source sink = atomically (readChannel source) >>= \case
     -- Delta-encode all remaining objects on the way out
     -- so we don't drop any last-second changes.
-    Nothing -> mapM_ (closeOut sink) $ HM.toList objects
-    Just (mid, l) -> deltas' now mid l objects source sink
+    Nothing -> do
+        mapM_ (closeOut sink) $ HM.toList s.dfsObjects
+        pure $ DecimatedLines s.dfsLinesDropped
+    Just (mid, l) -> deltas' mid l s source sink
 
 deltas'
-    :: Double
-    -> Maybe LineIds
+    :: Maybe LineIds
     -> Text
-    -> HashMap TacId ObjectState
+    -> DeltaFilterState
     -> Channel (Maybe LineIds, Text)
     -> Channel Text
-    -> IO ()
-deltas' now mid l !objects source sink = let
+    -> IO DecimatedLines
+deltas' mid l !s source sink = let
     -- Remove the object from the set we're tracking.
     axeIt x = do
         -- We might not have written in in a bit,
         -- so make sure its last known state goes out.
-        case objects HM.!? x of
+        case s.dfsObjects HM.!? x of
             Just going -> closeOut sink (x, going)
             Nothing -> pure ()
         evalWriteChannel sink l
-        deltas now (HM.delete x objects) source sink
+        deltas s { dfsObjects = HM.delete x s.dfsObjects } source sink
     -- Pass the line through without doing anything.
     passthrough t = do
         evalWriteChannel sink l
-        deltas t objects source sink
+        deltas s { dfsNow = t } source sink
     in case mid of
         Just (PropLine p) -> do
             -- Parse the line's properties and see if it's anything we're tracking.
             let props = lineProperties l
-                prev = objects HM.!? p
+                prev = s.dfsObjects HM.!? p
                 -- Update the properties we're tracking.
-                (newState, deltaLine) = updateObject prev now p props
+                (newState, deltaLine) = updateObject prev s.dfsNow p props
             mapM_ (evalWriteChannel sink) deltaLine
-            deltas now (HM.insert p newState objects) source sink
+            let nextState = s {
+                    dfsObjects = HM.insert p newState s.dfsObjects,
+                    dfsLinesDropped = s.dfsLinesDropped + if isNothing deltaLine then 1 else 0
+                }
+            deltas nextState source sink
         Just (RemLine p) -> axeIt p
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
         Just (EventLine es) -> if T.isInfixOf "Event=LeftArea" l
             then assert (HS.size es == 1) $ do
                 axeIt (head $ HS.toList es)
-            else passthrough now
+            else passthrough s.dfsNow
         Nothing -> let
             newTime = if T.isPrefixOf "#" l -- If it's a #<time> line
                 then parseTime l
-                else now
+                else s.dfsNow
             in passthrough newTime

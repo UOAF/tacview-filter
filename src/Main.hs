@@ -6,9 +6,9 @@ module Main where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
-import Control.Monad
-import Data.HashMap.Strict qualified as HM
+import Data.Time.Clock.POSIX
 import Data.Maybe
+import Data.Ratio
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
@@ -18,7 +18,6 @@ import Text.Printf
 
 import Delta
 import Ignores
-import Utils
 
 -- No command line args at the moment...
 -- Add flags to --ignore additional text?
@@ -43,39 +42,65 @@ main = do
 
 runFilter :: Args -> IO ()
 runFilter _ = do
+    start <- getPOSIXTime
+
     -- Hoare Was Right.
     -- The program is pipelined (see Data.Concurrency.Channel):
     -- each step is run in its own task, filters lines out,
     -- and passes the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
-
-    let ignore sink = pipeline reader (\source -> filterLines startState source sink)
-        thenDeltas sink = pipeline ignore (\source -> deltas 0.0 HM.empty source sink)
+    let ignore sink = pipeline (reader 0) (\source -> filterLines Ignores.startState source sink)
+        thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
         thenDropTimes = pipeline thenDeltas (timeDropAndWrite 0 0 Nothing)
 
-    void thenDropTimes
+    (((InputLines i, FilteredLines f), DecimatedLines d),
+      (DroppedTimeLines t, OutputLines o)) <- thenDropTimes
 
--- Boring I/O stuff start and end our pipeline:
+    end <- getPOSIXTime
+    let dt = end - start
+        dts = printf "%.2f" (realToFrac dt :: Double)
+    hPutStrLn stderr $ "in " <> dts <> " seconds"
+    hPutStrLn stderr $ show i <> " lines read"
+    hPutStrLn stderr $ show f <> " lines ignored"
+    hPutStrLn stderr $ show d <> " lines decimated"
+    hPutStrLn stderr $ show t <> " extra timestamps dropped"
+    hPutStrLn stderr $ show o <> " lines written"
+    hPutStrLn stderr $ percentage o i <> " total lines in/out"
+    let perSec = fromIntegral i / toRational dt
+    hPutStrLn stderr $ show (round perSec :: Integer) <> " lines/second"
+
+-- | Express n/d as both that ratio and a percentage
+percentage :: Int -> Int -> String
+percentage n d = let p = realToFrac $ n % d * 100 :: Double
+    in printf "%d/%d (%.2f%%)" n d p
+
+newtype InputLines = InputLines Int
 
 -- | Read stdin and split it into a list of lines
-reader :: Channel Text -> IO ()
-reader c = do
+reader :: Int -> Channel Text -> IO InputLines
+reader !l c = do
     eof <- isEOF
-    unless eof $ do
-        T.getLine >>= evalWriteChannel c
-        reader c
+    if eof
+        then pure $ InputLines l
+        else do
+            T.getLine >>= evalWriteChannel c
+            reader (l + 1) c
+
+newtype DroppedTimeLines = DroppedTimeLines Int
+newtype OutputLines = OutputLines Int
 
 -- | Drop adjacent timestamps, then write the lines we end up with.
-timeDropAndWrite :: Int -> Int -> Maybe Text -> Channel Text -> IO ()
+timeDropAndWrite :: Int -> Int -> Maybe Text -> Channel Text -> IO (DroppedTimeLines, OutputLines)
 timeDropAndWrite !count !total lastTime source = atomically (readChannel source) >>= \case
-    Nothing -> do
-        hPutStrLn stderr $ printf "%s lines were extra timestamps." (percentage count total)
+    Nothing -> pure (DroppedTimeLines count, OutputLines total)
     Just l -> if T.isPrefixOf "#" l -- If it's a #<time> line
-        then timeDropAndWrite (count + 1) (total + 1) (Just l) source
+        then timeDropAndWrite (count + 1) total (Just l) source
         else do -- If it's not a time line, drop the one we've been holding.
             mapM_ T.putStrLn lastTime
             T.putStrLn l
             let timesWritten = if isJust lastTime then 1 else 0
-            timeDropAndWrite (count - timesWritten) (total + 1) Nothing source
+                newCount = count - timesWritten
+                newTotal = total + 1 + timesWritten
+            timeDropAndWrite newCount newTotal Nothing source
 
 

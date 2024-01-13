@@ -17,10 +17,6 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
-import System.IO
-import Text.Printf
-
-import Utils
 
 -- Next, the ignore filter.
 -- We can either ignore objects entirely, or we can ignore all their events.
@@ -38,9 +34,7 @@ data IgnoreFilterState = IgnoreFilterState {
     -- | What objects' (by ID) events are we currently ignoring?
     ifsEventsIgnored :: HashSet TacId,
     -- | Track total lines dropped
-    ifsLinesDropped :: Int,
-    -- | Track total lines processed.
-    ifsLinesTotal :: Int
+    ifsLinesDropped :: Int
 }
 
 -- | The starting /ignore filter/ state.
@@ -62,7 +56,6 @@ startState = IgnoreFilterState{..} where
     ifsIgnored = HS.empty
     ifsEventsIgnored = HS.empty
     ifsLinesDropped = 0
-    ifsLinesTotal = 0
 
 -- | Given a line and its object ID, update the list of things we're ignoring
 --   and the list of things whose events we're ignoring.
@@ -95,17 +88,17 @@ ignoreableEvent es fs = not (HS.null toIgnore) && all (`HS.member` toIgnore) es
 unlessMaybe :: Bool -> a -> Maybe a
 unlessMaybe b v = if b then Nothing else Just v
 
+newtype FilteredLines = FilteredLines Int
+
 -- Our filtered lines are the current line (or nothing if it's filtered out)
 -- plus the rest of the list, filtered. Recursion!
 filterLines
     :: IgnoreFilterState
     -> Channel Text
     -> Channel (Maybe LineIds, Text)
-    -> IO ()
+    -> IO FilteredLines
 filterLines !fs source sink = atomically (readChannel source) >>= \case
-    Nothing -> hPutStrLn stderr $
-        printf "%s lines dropped to ignoreObjects. From the rest,"
-            (percentage fs.ifsLinesDropped fs.ifsLinesTotal)
+    Nothing -> pure $ FilteredLines fs.ifsLinesDropped
     Just l -> do
         let ids = idsOf l
             (filtered, nextState) = go ids
@@ -128,6 +121,5 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
         mapM_ (evalWriteChannel sink) fi
         -- Add one if we filtered a line out.
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
-            nextTotal = fs.ifsLinesTotal + 1
-            nextState' = nextState { ifsLinesDropped = nextCount, ifsLinesTotal = nextTotal }
+            nextState' = nextState { ifsLinesDropped = nextCount }
         filterLines nextState' source sink
