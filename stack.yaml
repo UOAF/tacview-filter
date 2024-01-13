@@ -5,5 +5,5 @@ packages:
 
 ghc-options:
   "$everything": -O2 -threaded
-  "$locals": -Wall
-  "$targets": '"-Werror -with-rtsopts=\"-N -qg1 -s\""'
+  "$locals": -Wall -fno-ignore-asserts -fPIC
+  "$targets": '"-Werror -with-rtsopts=\"-N\""'

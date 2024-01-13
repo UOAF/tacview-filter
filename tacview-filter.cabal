@@ -1,5 +1,6 @@
 cabal-version:      3.0
-name:               bms-tacview-filter
+name:               tacview-filter
+synopsis:           Shrinks uncompressed Tacview files
 version:            0.1.0.0
 license:            Zlib
 author:             Matt Kline
@@ -31,9 +32,9 @@ library tacview
                    unordered-containers,
                    vector
 
-executable bms-tacview-filter
+executable tacview-filter
     import: shared
-    ghc-options: "-with-rtsopts=-N"
+    ghc-options: "-with-rtsopts=-N" "-rtsopts"
     hs-source-dirs: src
     main-is: Main.hs
     other-modules: Delta,

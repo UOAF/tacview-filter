@@ -46,13 +46,14 @@ runFilter _ = do
 
     -- Hoare Was Right.
     -- The program is pipelined (see Data.Concurrency.Channel):
-    -- each step is run in its own task, filters lines out,
-    -- and passes the remainders to the next stage of the pipe.
+    -- Major steps are run in their own task.
+    -- They filters or modify lines, then pass the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
     let ignore sink = pipeline (reader 0) (\source -> filterLines Ignores.startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
         thenDropTimes = pipeline thenDeltas (timeDropAndWrite 0 0 Nothing)
 
+    -- Gather up all our stats, placed in newtypes for easier readability here.
     (((InputLines i, FilteredLines f), DecimatedLines d),
       (DroppedTimeLines t, OutputLines o)) <- thenDropTimes
 
@@ -76,7 +77,7 @@ percentage n d = let p = realToFrac $ n % d * 100 :: Double
 
 newtype InputLines = InputLines Int
 
--- | Read stdin and split it into a list of lines
+-- | Read stdin and send it line-by-line into our pipeline.
 reader :: Int -> Channel Text -> IO InputLines
 reader !l c = do
     eof <- isEOF
@@ -102,5 +103,3 @@ timeDropAndWrite !count !total lastTime source = atomically (readChannel source)
                 newCount = count - timesWritten
                 newTotal = total + 1 + timesWritten
             timeDropAndWrite newCount newTotal Nothing source
-
-

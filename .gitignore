@@ -1,8 +1,9 @@
+*.acmi*
+*.eventlog
 *.hi
 *.o
-*.acmi*
 *.prof
-bms-tacview-filter
+tacview-filter
 /.stack-work/
 /dist-newstyle/
 /result

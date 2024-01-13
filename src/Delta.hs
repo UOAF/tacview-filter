@@ -21,6 +21,12 @@ import Text.Printf
 
 import GHC.Stack
 
+-- We have two jobs here which make up the bulk of our space savings:
+-- 1. Delta-encode property lines: don't repeat properties which were already mentioned
+-- 2. Decimate property lines: Tacview only needs a few Hertz to put on a good show.
+--    (If you want to do numerical analysis flying things, Tacview data is already
+--    severely quantized you're better off dumping raw data from the game by other means.)
+
 data ObjectState = ObjectState {
     osCurrent :: Properties,
     osLastWritten :: Properties,
@@ -28,12 +34,15 @@ data ObjectState = ObjectState {
     osRate :: Double
 }
 
+-- | Given a new property line for the object,
+-- compute the next state and a delta-encoded line to print.
+-- The ID is provided only for printing purposes
 updateObject :: Maybe ObjectState -> Double -> TacId -> Properties -> (ObjectState, Maybe Text)
 updateObject maybePrevious now i props = case maybePrevious of
-    -- There was no previous record of this object.
-    -- Everything becomes the property set we're given,
-    -- and we should write a line immediately.
     Nothing -> let
+        -- There was no previous record of this object.
+        -- Everything becomes the property set we're given,
+        -- and we should write a line immediately.
         osCurrent = props
         osLastWritten = props
         osRate = rateOf $
@@ -42,8 +51,8 @@ updateObject maybePrevious now i props = case maybePrevious of
             showProperty <$> props HM.!? "Type"
         osNextWrite = now + osRate
         in (ObjectState{..}, Just $ showLine i props)
-    -- We have a previous record of this object.
     Just prev -> let
+        -- We have a previous record of this object.
         -- Merge its properties into the current set,
         merged = updateProperties prev.osCurrent props
         -- and decide if it's been long enough we should write a new line.
@@ -130,7 +139,7 @@ deltas'
     -> Channel Text
     -> IO DecimatedLines
 deltas' mid l !s source sink = let
-    -- Remove the object from the set we're tracking.
+    -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt x = do
         -- We might not have written in in a bit,
         -- so make sure its last known state goes out.
@@ -139,7 +148,7 @@ deltas' mid l !s source sink = let
             Nothing -> pure ()
         evalWriteChannel sink l
         deltas s { dfsObjects = HM.delete x s.dfsObjects } source sink
-    -- Pass the line through without doing anything.
+    -- Helper to pass the line through without doing anything, taking the time.
     passthrough t = do
         evalWriteChannel sink l
         deltas s { dfsNow = t } source sink

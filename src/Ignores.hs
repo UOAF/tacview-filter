@@ -5,7 +5,7 @@
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TupleSections #-}
 
-module Ignores where
+module Ignores (filterLines, FilteredLines(..), IgnoreFilterState, startState) where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
@@ -18,7 +18,7 @@ import Data.Text qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 
--- Next, the ignore filter.
+-- The ignore filter.
 -- We can either ignore objects entirely, or we can ignore all their events.
 -- To do that, we have to keep track of some state:
 
@@ -79,8 +79,7 @@ removeId i fs = fs { ifsIgnored = newIg, ifsEventsIgnored = newEvIg } where
     newIg = HS.delete i fs.ifsIgnored
     newEvIg = HS.delete i fs.ifsEventsIgnored
 
--- We can ignore an event if all of its IDs are in the
--- "ignored" or "events ignored" sets
+-- | We can ignore an event if all of its IDs are in the "ignored" or "events ignored" sets
 ignoreableEvent :: HashSet TacId -> IgnoreFilterState -> Bool
 ignoreableEvent es fs = not (HS.null toIgnore) && all (`HS.member` toIgnore) es
     where toIgnore = HS.union fs.ifsIgnored fs.ifsEventsIgnored
@@ -90,8 +89,6 @@ unlessMaybe b v = if b then Nothing else Just v
 
 newtype FilteredLines = FilteredLines Int
 
--- Our filtered lines are the current line (or nothing if it's filtered out)
--- plus the rest of the list, filtered. Recursion!
 filterLines
     :: IgnoreFilterState
     -> Channel Text
