@@ -1,7 +1,10 @@
 # tacview-filter
 
-Reads a (decompressed, use `funzip` or the like) ACMI file from stdin,
-shrinks it, and writes it (uncompressed, zip it back up) to stdout.
+Reads an uncompressed ACMI file from stdin, shrinks it, and writes it to stdout.
+As a shell one-liner:
+```
+funzip exported-from-game.zip.acmi | tacview-filter | zip -9 > smaller.zip.acmi
+```
 
 This was originally designed for BMS, but can clean up Tacview files
 from any source (DCS, IL-2, ...). While it uses a few tricks, its main
