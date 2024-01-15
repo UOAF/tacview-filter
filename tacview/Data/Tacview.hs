@@ -4,6 +4,7 @@
 module Data.Tacview where
 
 import Control.DeepSeq
+import Data.Char (isDigit)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet (HashSet)
@@ -68,8 +69,20 @@ idsOf l
 data Property = Property Text | Position (Vector Text) deriving (Eq)
 
 showProperty :: Property -> Text
-showProperty (Property t) = t
-showProperty (Position v) = T.intercalate "|" $ V.toList v
+showProperty (Property t) = shaveZeroes t
+showProperty (Position v) = T.intercalate "|" $ shaveZeroes <$> V.toList v
+
+shaveZeroes :: Text -> Text
+shaveZeroes t = if T.all (\c -> isDigit c || c == '.') t
+    then let
+        go [whole, fractional] = let
+            trimmedFrac = T.dropWhileEnd (== '0') fractional
+            in if T.null trimmedFrac
+                then whole
+                else whole <> "." <> trimmedFrac
+        go _ = t
+        in go $ T.splitOn "." t
+    else t
 
 -- | Each property is <name>=<value>
 parseProperty :: Text -> (Text, Property)
