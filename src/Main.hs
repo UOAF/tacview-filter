@@ -7,10 +7,8 @@ module Main where
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Data.Time.Clock.POSIX
-import Data.Maybe
 import Data.Ratio
 import Data.Text (Text)
-import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import Options.Applicative
 import System.IO
@@ -51,11 +49,10 @@ runFilter _ = do
     -- This parallelizes trivially; the runtime runs each task in a free thread.
     let ignore sink = pipeline (reader 0) (\source -> filterLines Ignores.startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
-        thenDropTimes = pipeline thenDeltas (timeDropAndWrite 0 0 Nothing)
+        thenDropTimes = pipeline thenDeltas (write 0)
 
     -- Gather up all our stats, placed in newtypes for easier readability here.
-    (((InputLines i, FilteredLines f), DecimatedLines d),
-      (DroppedTimeLines t, OutputLines o)) <- thenDropTimes
+    (((InputLines i, FilteredLines f), DecimatedLines d), OutputLines o) <- thenDropTimes
 
     end <- getPOSIXTime
     let dt = end - start
@@ -64,7 +61,7 @@ runFilter _ = do
     hPutStrLn stderr $ show i <> " lines read"
     hPutStrLn stderr $ show f <> " lines ignored"
     hPutStrLn stderr $ show d <> " lines decimated"
-    hPutStrLn stderr $ show t <> " extra timestamps dropped"
+    -- hPutStrLn stderr $ show t <> " extra timestamps dropped"
     hPutStrLn stderr $ show o <> " lines written"
     hPutStrLn stderr $ percentage o i <> " total lines in/out"
     let perSec = fromIntegral i / toRational dt
@@ -90,16 +87,10 @@ reader !l c = do
 newtype DroppedTimeLines = DroppedTimeLines Int
 newtype OutputLines = OutputLines Int
 
--- | Drop adjacent timestamps, then write the lines we end up with.
-timeDropAndWrite :: Int -> Int -> Maybe Text -> Channel Text -> IO (DroppedTimeLines, OutputLines)
-timeDropAndWrite !count !total lastTime source = atomically (readChannel source) >>= \case
-    Nothing -> pure (DroppedTimeLines count, OutputLines total)
-    Just l -> if T.isPrefixOf "#" l -- If it's a #<time> line
-        then timeDropAndWrite (count + 1) total (Just l) source
-        else do -- If it's not a time line, drop the one we've been holding.
-            mapM_ T.putStrLn lastTime
-            T.putStrLn l
-            let timesWritten = if isJust lastTime then 1 else 0
-                newCount = count - timesWritten
-                newTotal = total + 1 + timesWritten
-            timeDropAndWrite newCount newTotal Nothing source
+-- | Write everything out when we're done.
+write :: Int -> Channel Text -> IO OutputLines
+write !count source = atomically (readChannel source) >>= \case
+    Nothing -> pure $ OutputLines count
+    Just l -> do
+        T.putStrLn l
+        write (count + 1) source
