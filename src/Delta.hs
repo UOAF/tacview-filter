@@ -13,7 +13,6 @@ import Control.Monad
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.HashSet qualified as HS
-import Data.Int
 import Data.Maybe
 import Data.Tacview
 import Data.Text (Text)
@@ -120,9 +119,6 @@ parseTime t = case T.rational (T.tail t) of
     Left e -> error (T.unpack t <> ": " <> e)
     Right (v, _) -> v
 
-roundTime :: Double -> Double
-roundTime t = fromIntegral (floor $ t * 100 :: Int64) / 100
-
 newtype DecimatedLines = DecimatedLines Int
 
 deltas
@@ -148,7 +144,7 @@ deltas' mid l !s source sink = let
     -- Helper to write a timestamp when we need a new one.
     writeTimestamp = do
         when (s.dfsNow /= s.dfsLastWrittenTime) $
-            evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%.2f" s.dfsNow)
+            evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%f" s.dfsNow)
         pure s.dfsNow
     -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt x = do
@@ -196,5 +192,5 @@ deltas' mid l !s source sink = let
             else passthrough
         Nothing -> if T.isPrefixOf "#" l
             -- If it's a #<time> line, note the new time but dont write.
-            then deltas s { dfsNow = roundTime $ parseTime l } source sink
+            then deltas s { dfsNow = parseTime l } source sink
             else passthrough
