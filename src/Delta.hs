@@ -168,7 +168,7 @@ deltas' mid l !s source sink = let
     in case mid of
         Just (PropLine p) -> do
             -- Parse the line's properties and see if it's anything we're tracking.
-            let props = lineProperties l
+            let props = sansG . lineProperties $ l
                 prev = s.dfsObjects HM.!? p
                 -- Update the properties we're tracking.
                 (newState, deltaLine) = updateObject prev s.dfsNow p props

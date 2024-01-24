@@ -110,6 +110,11 @@ showProperties ps = -- Finagling - get T= first
 lineProperties :: Text -> Properties
 lineProperties t = HM.fromList $ fmap parseProperty (tail . T.splitOn "," $ t)
 
+-- | The BMS server currently serves BS g-force measurements which are always 0,
+-- so then Tacview sessions show everything at 0G.
+sansG :: Properties -> Properties
+sansG = HM.delete "LateralGForce" . HM.delete "LongitudinalGForce" . HM.delete "VerticalGForce"
+
 -- | Update a pervious set of object properties with the new set
 -- (Updates are delta-encoded where unmentioned properties retain their previous value.)
 updateProperties :: Properties -> Properties -> Properties
