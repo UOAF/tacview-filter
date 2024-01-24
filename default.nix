@@ -1,11 +1,7 @@
-let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/7448cb3337456fbd8208b1c8f1db6b33654e03c0.tar.gz";
+let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/c9129a2eb14aff7c9db534023cb04f6ff6bfa152.tar.gz";
     haskellNix = import haskellSrc {};
     # Import nixpkgs and pass the haskell.nix provided nixpkgsArgs
-    pkgs = import
-        # haskell.nix provides access to the nixpkgs pins which are used by our CI,
-        # hence you will be more likely to get cache hits when using these.
-        # But you can also just use your own, e.g. '<nixpkgs>'.
-        haskellNix.sources.nixpkgs
+    pkgs = import <nixos>
         # These arguments passed to nixpkgs, include some patches and also
         # the haskell.nix functionality itself as an overlay.
         haskellNix.nixpkgsArgs;
