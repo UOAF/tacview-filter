@@ -1,7 +1,7 @@
 cabal-version:      3.0
 name:               tacview-filter
-synopsis:           Shrinks uncompressed Tacview files
-version:            0.1.0.0
+synopsis:           Shrinks Tacview files
+version:            0.2.0.0
 license:            Zlib
 author:             Matt Kline
 maintainer:         matt@bitbashing.io
@@ -9,7 +9,7 @@ category:           Data
 build-type:         Simple
 
 common shared
-    ghc-options: -Wall -threaded -fno-ignore-asserts -fPIC
+    ghc-options: -Wall -Wextra -Wno-x-partial -threaded -fno-ignore-asserts
     default-language: Haskell2010
     default-extensions: ImportQualifiedPost OverloadedStrings
 
@@ -34,18 +34,20 @@ library tacview
 
 executable tacview-filter
     import: shared
-    ghc-options: "-with-rtsopts=-N" "-rtsopts"
+    ghc-options: "-with-rtsopts=-N"
     hs-source-dirs: src
     main-is: Main.hs
     other-modules: Delta,
                    Ignores
     build-depends: base,
                    channel,
-                   containers,
                    tacview,
-                   time,
+                   conduit,
+                   containers,
                    optparse-applicative,
                    stm,
                    text,
+                   time,
                    unordered-containers,
-                   vector
+                   vector,
+                   zip

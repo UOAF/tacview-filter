@@ -1,9 +1,4 @@
-resolver: lts-22.7
+resolver: lts-23.0
 
 packages:
 - .
-
-ghc-options:
-  "$everything": -O2 -threaded
-  "$locals": -Wall -fno-ignore-asserts -fPIC
-  "$targets": '"-Werror -with-rtsopts=\"-N\""'
