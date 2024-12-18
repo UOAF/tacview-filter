@@ -4,7 +4,8 @@ in project.shellFor {
     tools = {
       cabal = "latest";
       hlint = "latest";
-      haskell-language-server = "latest";
+      # Currently torpedoed by some build error with ghcide on 9.8
+      #haskell-language-server = "latest";
     };
     withHoogle = true;
 }
