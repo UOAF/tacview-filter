@@ -2,3 +2,6 @@ resolver: lts-23.0
 
 packages:
 - .
+
+ghc-options:
+  "$everything": -O2
