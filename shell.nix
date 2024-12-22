@@ -7,5 +7,4 @@ in project.shellFor {
       # Currently torpedoed by some build error with ghcide on 9.8
       #haskell-language-server = "latest";
     };
-    withHoogle = true;
 }
