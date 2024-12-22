@@ -61,6 +61,6 @@ closeChannel c = writeTVar c.closed True
 
 pipeline :: (Channel a -> IO b) -> (Channel a -> IO c) -> IO (b, c)
 pipeline producer consumer = do
-    c <- newChannelIO 64 -- Arbitrary
+    c <- newChannelIO 1024 -- Arbitrary
     let producer' = producer c `finally` atomically (closeChannel c)
     concurrently producer' (consumer c)
