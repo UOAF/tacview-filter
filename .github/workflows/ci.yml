@@ -1,14 +1,30 @@
-on: [push]
+on: [push, workflow_dispatch]
 name: build
 jobs:
   build:
     name: Tacview Filter
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: haskell-actions/setup@v2
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        uses: haskell-actions/setup@v2
+        id: build
         with:
           enable-stack: true
-          stack-version: 'latest'
+          stack-version: "latest"
           stack-no-global: true
       - run: stack build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: Executable
+          path: ${{ steps.build.outputs.stack-exe }}
+
+      - name: Release (if a new version is tagged)
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          files: ${{ steps.build.outputs.stack-exe }}
