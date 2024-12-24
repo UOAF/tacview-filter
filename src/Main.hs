@@ -6,6 +6,7 @@
 module Main where
 
 import Codec.Archive.Zip
+import Codec.Archive.Zip.Internal qualified as ZI
 import Control.Concurrent.Async
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.Channel
@@ -166,10 +167,20 @@ writeStdout src = runConduitRes $ src .| mapM_C (liftIO . T.putStrLn)
 writeZip :: FilePath -> ConduitT () Text (ResourceT IO) () -> IO ()
 writeZip z src = do
     let zn = (T.unpack . T.dropEnd (length zipExt) . T.pack $ z) <> "-filtered" <> zipExt
-    createArchive zn $ do
+    withBinaryFile zn WriteMode $ \h -> do
         sel <- mkEntrySelector "acmi.txt"
-        let pipe = src .| unlinesC .| encodeUtf8C
-        sinkEntry Deflate pipe sel
+        let eaCompression = M.singleton sel Deflate
+            eaEntryComment = M.empty
+            eaDeleteComment = M.empty
+            eaModTime = M.empty
+            eaExtraField = M.empty
+            eaDeleteField = M.empty
+            eaExtFileAttr = M.empty
+            ea = ZI.EditingActions{..}
+            pipe = src .| unlinesC .| encodeUtf8C
+        (es, des) <- ZI.sinkEntry h sel ZI.GenericOrigin pipe ea
+        let cdmap = M.singleton es des
+        ZI.writeCD h (Just "Generated with tacview-filter") cdmap
 
 progress :: IORef Int -> IORef Int -> IO ()
 progress i o = progress' i o 0
