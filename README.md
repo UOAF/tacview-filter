@@ -13,12 +13,8 @@ suggested on https://www.tacview.net/documentation/realtime/en/
 
 ## Obvious Quesitons
 
-- **Can you bulid the unzipping and rezipping in so I don't need to script multiple programs?**  
-  That's a good idea. Soon™.
-
 - **Can you just make BMS export better Tacview files?**  
-  It's a work in progress. Some improvements should ship with 4.37U4, but it seems nice to also have
-  a standalone tool since:
+  It's a work in progress, but it also seems nice to have a standalone tool since:
   1. We can use more CPU and RAM that we wouldn't want to add to BMS system requirements
      in order to compute more efficient output.
   2. It's easier to ship frequent updates for a small program than for a whole video game.
