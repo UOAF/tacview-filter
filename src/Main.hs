@@ -17,7 +17,5 @@ main = do
     hSetNewlineMode stderr noNewlineTranslation
 
     let src = stdinC .| decodeUtf8C .| linesUnboundedC
-    createArchive "out.zip" $ do
-        sel <- mkEntrySelector "out.txt"
-        let pipe = src .| unlinesC .| encodeUtf8C
-        sinkEntry Deflate pipe sel
+    let dest = unlinesC .| encodeUtf8C .| sinkFile "out.txt"
+    runConduitRes $ src .| dest
