@@ -9,9 +9,9 @@ let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haske
         # These arguments passed to nixpkgs, include some patches and also
         # the haskell.nix functionality itself as an overlay.
         haskellNix.nixpkgsArgs;
-in pkgs.haskell-nix.project {
-  src = pkgs.haskell-nix.haskellLib.cleanGit {
-    name = "tacview-filter";
+in pkgs.haskell-nix.stackProject {
+  src = pkgs.haskell-nix.cleanSourceHaskell {
+    name = "tacview";
     src = ./.;
   };
   modules = [

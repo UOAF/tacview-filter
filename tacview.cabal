@@ -1,6 +1,6 @@
 cabal-version:      3.0
-name:               tacview-filter
-synopsis:           Shrinks Tacview files
+name:               tacview
+synopsis:           Tacview codec and Tacview accessories
 version:            0.2.1.0
 license:            Zlib
 author:             Matt Kline
@@ -22,10 +22,10 @@ library channel
                    deepseq,
                    stm
 
-library tacview
+library
     import: shared
     exposed-modules: Data.Tacview
-    hs-source-dirs: tacview
+    hs-source-dirs: lib
     build-depends: base,
                    deepseq,
                    text,
@@ -35,7 +35,7 @@ library tacview
 executable tacview-filter
     import: shared
     ghc-options: -rtsopts "-with-rtsopts=-N"
-    hs-source-dirs: src
+    hs-source-dirs: filter
     main-is: Main.hs
     other-modules: Delta,
                    Ignores
