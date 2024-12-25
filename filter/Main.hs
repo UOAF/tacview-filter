@@ -69,16 +69,15 @@ runFilter Args{..} = do
     -- Major steps are run in their own task.
     -- They filters or modify lines, then pass the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
-    src <- maybe (pure readStdin) readZip zipInput
-        :: IO (ConduitT () BS.ByteString (ResourceT IO) ())
+    src <- sourceStream zipInput
+    dest <- sinkStream zipInput
     linesRead <- newIORef 0
     linesWritten <- newIORef 0
-    let filterInput = feed src linesRead
-        dest = maybe (writeStdout) writeZip zipInput
-        filterOutput = write linesWritten dest
-        ignore sink = pipeline filterInput (\source -> filterLines Ignores.startState source sink)
+    let ignore sink = pipeline
+            (feed src linesRead)
+            (\source -> filterLines Ignores.startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
-        thenDropTimes = pipeline thenDeltas filterOutput
+        thenDropTimes = pipeline thenDeltas (\source -> consume linesWritten source dest)
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress linesRead linesWritten
@@ -117,17 +116,30 @@ newtype InputLines = InputLines Int
 zipExt :: String
 zipExt = ".zip.acmi"
 
+txtExt :: String
+txtExt = ".txt.acmi"
+
+sourceStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) ())
+sourceStream = \case
+    Nothing -> pure readStdin
+    Just fp -> go where
+        go
+            | (zipExt `isSuffixOf` fp) = readZip fp
+            | (txtExt `isSuffixOf` fp) = pure $ readTxt fp
+            | otherwise = fail "expected a .zip.acmi or .txt.acmi file"
+
 readStdin :: ConduitT () BS.ByteString (ResourceT IO) ()
 readStdin = sourceHandle stdin
 
+readTxt :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) ()
+readTxt = sourceFile
+
 readZip :: FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) ())
-readZip z = do
-    unless (zipExt `isSuffixOf` z) $ error "Expected .zip.acmi file"
-    withArchive z $ do
-        e <- getEntries
-        when (M.null e) $ error "empty ZIP archive!"
-        let sel = head $ M.keys e
-        getEntrySource sel
+readZip z = withArchive z $ do
+    e <- getEntries
+    when (M.null e) $ error "empty ZIP archive!"
+    let sel = head $ M.keys e
+    getEntrySource sel
 
 feed
     :: ConduitT () BS.ByteString (ResourceT IO) ()
@@ -148,23 +160,38 @@ newtype DroppedTimeLines = DroppedTimeLines Int
 newtype OutputLines = OutputLines Int
 
 -- | Write everything out when we're done.
-write
+consume
     :: IORef Int
-    -> (ConduitT () Text (ResourceT IO) () -> IO ())
     -> Channel Text
+    -> (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
     -> IO OutputLines
-write iow runner source = do
-    let srcC :: ConduitT () Text (ResourceT IO) ()
+consume iow source sink = do
+    let srcC :: ConduitT () BS.ByteString (ResourceT IO) ()
         srcC = repeatMC (liftIO $ atomically (readChannel source))
             .| mapWhileC id
             .| iterMC (const . liftIO $ atomicModifyIORef' iow $ \p -> (p + 1, ()))
-    runner srcC
+            .| unlinesC
+            .| encodeUtf8C
+    sink srcC
     OutputLines <$> readIORef iow
 
-writeStdout :: ConduitT () Text (ResourceT IO) () -> IO ()
-writeStdout src = runConduitRes $ src .| mapM_C (liftIO . T.putStrLn)
+sinkStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
+sinkStream = \case
+    Nothing -> pure writeStdout
+    Just fp -> go where
+        go
+            | (zipExt `isSuffixOf` fp) = pure $ writeZip fp
+            | (txtExt `isSuffixOf` fp) = pure $ writeTxt fp
+            | otherwise = fail "expected a .zip.acmi or .txt.acmi file"
 
-writeZip :: FilePath -> ConduitT () Text (ResourceT IO) () -> IO ()
+writeStdout :: ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
+writeStdout src = runConduitRes $ src .| sinkHandle stdout
+
+writeTxt :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
+writeTxt t src = runConduitRes $ src .| sinkFile tn where
+    tn = (T.unpack . T.dropEnd (length txtExt) . T.pack $ t) <> "-filtered" <> txtExt
+
+writeZip :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
 writeZip z src = do
     let zn = (T.unpack . T.dropEnd (length zipExt) . T.pack $ z) <> "-filtered" <> zipExt
     withBinaryFile zn WriteMode $ \h -> do
@@ -177,8 +204,7 @@ writeZip z src = do
             eaDeleteField = M.empty
             eaExtFileAttr = M.empty
             ea = ZI.EditingActions{..}
-            pipe = src .| unlinesC .| encodeUtf8C
-        (es, des) <- ZI.sinkEntry h sel ZI.GenericOrigin pipe ea
+        (es, des) <- ZI.sinkEntry h sel ZI.GenericOrigin src ea
         let cdmap = M.singleton es des
         ZI.writeCD h (Just "Generated with tacview-filter") cdmap
 
