@@ -10,7 +10,7 @@ import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Data.ByteString qualified as BS
 import Data.IORef
-import Data.List
+import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as M
 import Data.Tacview (zipExt, txtExt)
 import Data.Text (Text)

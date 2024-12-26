@@ -53,7 +53,7 @@ data LineIds =
     -- | An event line: @0,Event=...|id1|id2|...@
     --   This can have multiple IDs!
     EventLine (HashSet TacId)
-    deriving (Show, Generic)
+    deriving stock (Show, Generic)
 
 instance NFData LineIds
 
@@ -72,7 +72,7 @@ idsOf l
         Nothing -> Nothing
 
 -- | Positions are a special case, where each coordinate can be delta-encoded.
-data Property = Property Text | Position (Vector Text) deriving (Eq)
+data Property = Property Text | Position (Vector Text) deriving stock (Eq)
 
 showProperty :: Property -> Text
 showProperty (Property t) = shaveZeroes t
