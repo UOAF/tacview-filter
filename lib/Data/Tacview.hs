@@ -20,6 +20,12 @@ import Data.Vector qualified as V
 import GHC.Generics
 import GHC.Stack
 
+zipExt :: String
+zipExt = ".zip.acmi"
+
+txtExt :: String
+txtExt = ".txt.acmi"
+
 -- | Objects in TacView are identified by 64-bit hex values.
 type TacId = Word64
 

@@ -1,24 +1,15 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE StrictData #-}
-
 module Main where
 
-import Codec.Archive.Zip
-import Codec.Archive.Zip.Internal qualified as ZI
 import Control.Concurrent.Async
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.Channel
-import Control.Concurrent.STM
 import Control.Monad
-import Conduit
-import Data.ByteString qualified as BS
 import Data.Function (fix)
 import Data.IORef
-import Data.List
-import Data.Map.Strict qualified as M
-import Data.Text (Text)
+import Data.Tacview.Sink (OutputLines(..))
+import Data.Tacview.Sink qualified as Tacview
+import Data.Tacview.Source (InputLines(..))
+import Data.Tacview.Source qualified as Tacview
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import GHC.Float
@@ -69,15 +60,15 @@ runFilter Args{..} = do
     -- Major steps are run in their own task.
     -- They filters or modify lines, then pass the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
-    src <- sourceStream zipInput
-    dest <- sinkStream zipInput
     linesRead <- newIORef 0
     linesWritten <- newIORef 0
+    let src = Tacview.source zipInput linesRead
+    let dst = Tacview.sink zipInput linesWritten
     let ignore sink = pipeline
-            (feed src linesRead)
+            src
             (\source -> filterLines Ignores.startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
-        thenDropTimes = pipeline thenDeltas (\source -> consume linesWritten source dest)
+        thenDropTimes = pipeline thenDeltas dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress linesRead linesWritten
@@ -110,103 +101,6 @@ runFilter Args{..} = do
 percentage :: Int -> Int -> String
 percentage n d = let p = int2Double n / int2Double d * 100 :: Double
     in printf "%d/%d (%.2f%%)" n d p
-
-newtype InputLines = InputLines Int
-
-zipExt :: String
-zipExt = ".zip.acmi"
-
-txtExt :: String
-txtExt = ".txt.acmi"
-
-sourceStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) ())
-sourceStream = \case
-    Nothing -> pure readStdin
-    Just fp -> go where
-        go
-            | (zipExt `isSuffixOf` fp) = readZip fp
-            | (txtExt `isSuffixOf` fp) = pure $ readTxt fp
-            | otherwise = fail "expected a .zip.acmi or .txt.acmi file"
-
-readStdin :: ConduitT () BS.ByteString (ResourceT IO) ()
-readStdin = sourceHandle stdin
-
-readTxt :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) ()
-readTxt = sourceFile
-
-readZip :: FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) ())
-readZip z = withArchive z $ do
-    e <- getEntries
-    when (M.null e) $ error "empty ZIP archive!"
-    let sel = head $ M.keys e
-    getEntrySource sel
-
-feed
-    :: ConduitT () BS.ByteString (ResourceT IO) ()
-    -> IORef Int
-    -> Channel Text
-    -> IO InputLines
-feed src ior c = do
-    let go l = do
-            evalWriteChannel c l
-            atomicModifyIORef' ior $ \p -> (p + 1, ())
-    runConduitRes $
-        src .| decodeUtf8C .| linesUnboundedC .| mapM_C (liftIO . go)
-    -- Hmm: https://gitlab.haskell.org/ghc/ghc/-/issues/22468
-    -- https://github.com/haskell/core-libraries-committee/issues/112
-    InputLines <$> readIORef ior
-
-newtype DroppedTimeLines = DroppedTimeLines Int
-newtype OutputLines = OutputLines Int
-
--- | Write everything out when we're done.
-consume
-    :: IORef Int
-    -> Channel Text
-    -> (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
-    -> IO OutputLines
-consume iow source sink = do
-    let srcC :: ConduitT () BS.ByteString (ResourceT IO) ()
-        srcC = repeatMC (liftIO $ atomically (readChannel source))
-            .| mapWhileC id
-            .| iterMC (const . liftIO $ atomicModifyIORef' iow $ \p -> (p + 1, ()))
-            .| unlinesC
-            .| encodeUtf8C
-    sink srcC
-    OutputLines <$> readIORef iow
-
-sinkStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
-sinkStream = \case
-    Nothing -> pure writeStdout
-    Just fp -> go where
-        go
-            | (zipExt `isSuffixOf` fp) = pure $ writeZip fp
-            | (txtExt `isSuffixOf` fp) = pure $ writeTxt fp
-            | otherwise = fail "expected a .zip.acmi or .txt.acmi file"
-
-writeStdout :: ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeStdout src = runConduitRes $ src .| sinkHandle stdout
-
-writeTxt :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeTxt t src = runConduitRes $ src .| sinkFile tn where
-    tn = (T.unpack . T.dropEnd (length txtExt) . T.pack $ t) <> "-filtered" <> txtExt
-
-writeZip :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeZip z src = do
-    let zn = (T.unpack . T.dropEnd (length zipExt) . T.pack $ z) <> "-filtered" <> zipExt
-    withBinaryFile zn WriteMode $ \h -> do
-        sel <- mkEntrySelector "acmi.txt"
-        let eaCompression = M.singleton sel Deflate
-            eaEntryComment = M.empty
-            eaDeleteComment = M.empty
-            eaModTime = M.empty
-            eaExtraField = M.empty
-            eaDeleteField = M.empty
-            eaExtFileAttr = M.empty
-            ea = ZI.EditingActions{..}
-        (es, des) <- ZI.sinkEntry h sel ZI.GenericOrigin src ea
-        let cdmap = M.singleton es des
-        ZI.writeCD h (Just "Generated with tacview-filter") cdmap
 
 progress :: IORef Int -> IORef Int -> IO ()
 progress i o = progress' i o 0
