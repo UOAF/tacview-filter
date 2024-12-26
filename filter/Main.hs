@@ -214,13 +214,25 @@ progress i o = progress' i o 0
 progress' :: IORef Int -> IORef Int -> Int -> IO ()
 progress' i o = fix $ \loop n -> do
     i' <- readIORef i
-    o' <- readIORef o
-    let p = int2Double o' / int2Double (max 1 i') * 100
-        cc = clearFromCursorToLineBeginningCode
-    T.hPutStr stderr . T.pack $
-        printf "%v\r%c %v lines in / %v out (%.0f%%)" cc (spinny n) i' o' p
-    threadDelay 100000 -- 20 FPS
-    loop (n + 1)
+    if i' == 0
+        then do
+            hPutStr stderr "waiting for input on stdin..."
+            let waitForInput = do
+                    -- Polling is bad but I'll take it instead of busting out STM just yet.
+                    threadDelay 100000 -- 20 FPS
+                    i'' <- readIORef i
+                    if i'' == 0 then waitForInput else loop n
+            waitForInput
+
+
+        else do
+            o' <- readIORef o
+            let p = int2Double o' / int2Double (max 1 i') * 100
+                cc = clearFromCursorToLineBeginningCode
+            T.hPutStr stderr . T.pack $
+                printf "%v\r%c %v lines in / %v out (%.0f%%)" cc (spinny n) i' o' p
+            threadDelay 100000 -- 20 FPS
+            loop (n + 1)
 
 spinny :: Int -> Char
 spinny n = case n `mod` 4 of
