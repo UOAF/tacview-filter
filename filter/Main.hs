@@ -73,19 +73,22 @@ runFilter Args{..} = do
     dest <- sinkStream zipInput
     linesRead <- newIORef 0
     linesWritten <- newIORef 0
-    let ignore sink = pipeline
+    let filterChain = fuseBoth (filterLines Ignores.startState) (deltas Delta.startState)
+            :: ConduitT Text Text (ResourceT IO) (FilteredLines, DecimatedLines)
+        filterChain' source sink = runConduitRes $
+            fuseUpstream (awaitChan source .| filterChain) (yieldChan sink)
+    let readAndFilter sink = pipeline
             (feed src linesRead)
-            (\source -> filterLines Ignores.startState source sink)
-        thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
-        thenDropTimes = pipeline thenDeltas (\source -> consume linesWritten source dest)
+            (\source -> filterChain' source sink)
+        writeOut = pipeline readAndFilter (\source -> consume linesWritten source dest)
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress linesRead linesWritten
 
-    runnit <- race thenDropTimes prog
+    runnit <- race writeOut prog
 
     -- Gather up all our stats, placed in newtypes for easier readability here.
-    let (((InputLines i, FilteredLines f), DecimatedLines d), OutputLines o) = case runnit of
+    let ((InputLines i, (FilteredLines f, DecimatedLines d)), OutputLines o) = case runnit of
             Left l -> l
             Right () -> error "absurd: progress should run forever"
 
@@ -110,6 +113,16 @@ runFilter Args{..} = do
 percentage :: Int -> Int -> String
 percentage n d = let p = int2Double n / int2Double d * 100 :: Double
     in printf "%d/%d (%.2f%%)" n d p
+
+awaitChan :: Channel o -> ConduitT i o (ResourceT IO) ()
+awaitChan source = repeatMC (liftIO $ atomically (readChannel source)) .| mapWhileC id
+
+yieldChan :: Channel i -> ConduitT i o (ResourceT IO) ()
+yieldChan sink = await >>= \case
+    Just v -> do
+        liftIO . atomically $ writeChannel sink v
+        yieldChan sink
+    Nothing -> pure ()
 
 newtype InputLines = InputLines Int
 
@@ -167,8 +180,7 @@ consume
     -> IO OutputLines
 consume iow source sink = do
     let srcC :: ConduitT () BS.ByteString (ResourceT IO) ()
-        srcC = repeatMC (liftIO $ atomically (readChannel source))
-            .| mapWhileC id
+        srcC = awaitChan source
             .| iterMC (const . liftIO $ atomicModifyIORef' iow $ \p -> (p + 1, ()))
             .| unlinesC
             .| encodeUtf8C

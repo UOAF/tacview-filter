@@ -6,8 +6,7 @@
 
 module Delta (deltas, DecimatedLines(..), DeltaFilterState, startState) where
 
-import Control.Concurrent.Channel
-import Control.Concurrent.STM
+import Conduit
 import Control.Exception
 import Control.Monad
 import Data.HashMap.Strict (HashMap)
@@ -99,9 +98,8 @@ rateOf Nothing = 1.0
 
 -- We might not have written in in a bit,
 -- so make sure its last known state goes out.
-closeOut :: Channel Text -> (TacId, ObjectState) -> IO ()
-closeOut sink (i, o) = mapM_ (evalWriteChannel sink) $
-    deltaEncode i o.osLastWritten o.osCurrent
+closeOut :: Monad m => (TacId, ObjectState) -> ConduitT (Maybe LineIds, Text) Text m ()
+closeOut (i, o) = mapM_ yield $ deltaEncode i o.osLastWritten o.osCurrent
 
 data DeltaFilterState = DeltaFilterState {
     dfsObjects :: HashMap TacId ObjectState,
@@ -122,49 +120,48 @@ parseTime t = case T.rational (T.tail t) of
 newtype DecimatedLines = DecimatedLines Int
 
 deltas
-    :: DeltaFilterState
-    -> Channel (Maybe LineIds, Text)
-    -> Channel Text -> IO DecimatedLines
-deltas !s source sink = atomically (readChannel source) >>= \case
+    :: Monad m
+    => DeltaFilterState
+    -> ConduitT (Maybe LineIds, Text) Text m DecimatedLines
+deltas !s = await >>= \case
     -- Delta-encode all remaining objects on the way out
     -- so we don't drop any last-second changes.
     Nothing -> do
-        mapM_ (closeOut sink) $ HM.toList s.dfsObjects
+        mapM_ closeOut $ HM.toList s.dfsObjects
         pure $ DecimatedLines s.dfsLinesDropped
-    Just (mid, l) -> deltas' mid l s source sink
+    Just (mid, l) -> deltas' mid l s
 
 deltas'
-    :: Maybe LineIds
+    :: Monad m
+    => Maybe LineIds
     -> Text
     -> DeltaFilterState
-    -> Channel (Maybe LineIds, Text)
-    -> Channel Text
-    -> IO DecimatedLines
-deltas' mid l !s source sink = let
+    -> ConduitT (Maybe LineIds, Text) Text m DecimatedLines
+deltas' mid l !s = let
     -- Helper to write a timestamp when we need a new one.
     writeTimestamp = do
         when (s.dfsNow /= s.dfsLastWrittenTime) $
-            evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%f" s.dfsNow)
+            yield $ "#" <> (shaveZeroes . T.pack $ printf "%f" s.dfsNow)
         pure s.dfsNow
     -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt x = do
         -- We might not have written in in a bit,
         -- so make sure its last known state goes out.
         case s.dfsObjects HM.!? x of
-            Just going -> closeOut sink (x, going)
+            Just going -> closeOut (x, going)
             Nothing -> pure ()
         newLastWritten <- writeTimestamp
-        evalWriteChannel sink l
+        yield l
         let newState = s {
                 dfsLastWrittenTime = newLastWritten,
                 dfsObjects = HM.delete x s.dfsObjects
             }
-        deltas newState source sink
+        deltas newState
     -- Helper to pass the line through without doing anything, taking the time.
     passthrough = do
         newLastWritten <- writeTimestamp
-        evalWriteChannel sink l
-        deltas s { dfsLastWrittenTime = newLastWritten } source sink
+        yield l
+        deltas s { dfsLastWrittenTime = newLastWritten }
     in case mid of
         Just (PropLine p) -> do
             -- Parse the line's properties and see if it's anything we're tracking.
@@ -175,14 +172,14 @@ deltas' mid l !s source sink = let
             -- If we have a delta line...
             maybeNewLastWrittenTime <- forM deltaLine $ \d -> do
                 nlw <- writeTimestamp
-                evalWriteChannel sink d
+                yield d
                 pure nlw
             let nextState = s {
                     dfsObjects = HM.insert p newState s.dfsObjects,
                     dfsLastWrittenTime = fromMaybe s.dfsLastWrittenTime maybeNewLastWrittenTime,
                     dfsLinesDropped = s.dfsLinesDropped + if isNothing deltaLine then 1 else 0
                 }
-            deltas nextState source sink
+            deltas nextState
         Just (RemLine p) -> axeIt p
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
@@ -192,5 +189,5 @@ deltas' mid l !s source sink = let
             else passthrough
         Nothing -> if T.isPrefixOf "#" l
             -- If it's a #<time> line, note the new time but dont write.
-            then deltas s { dfsNow = parseTime l } source sink
+            then deltas s { dfsNow = parseTime l }
             else passthrough

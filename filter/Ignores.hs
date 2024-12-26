@@ -7,8 +7,7 @@
 
 module Ignores (filterLines, FilteredLines(..), IgnoreFilterState, startState) where
 
-import Control.Concurrent.Channel
-import Control.Concurrent.STM
+import Conduit
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Maybe
@@ -90,11 +89,10 @@ unlessMaybe b v = if b then Nothing else Just v
 newtype FilteredLines = FilteredLines Int
 
 filterLines
-    :: IgnoreFilterState
-    -> Channel Text
-    -> Channel (Maybe LineIds, Text)
-    -> IO FilteredLines
-filterLines !fs source sink = atomically (readChannel source) >>= \case
+    :: Monad m
+    => IgnoreFilterState
+    -> ConduitT Text (Maybe LineIds, Text) m FilteredLines
+filterLines !fs = await >>= \case
     Nothing -> pure $ FilteredLines fs.ifsLinesDropped
     Just l -> do
         let ids = idsOf l
@@ -115,8 +113,8 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
             -- Pass the current line through, no change to state.
             go Nothing = (Just l, fs)
             fi = (ids,) <$> filtered
-        mapM_ (evalWriteChannel sink) fi
+        mapM_ yield fi
         -- Add one if we filtered a line out.
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
             nextState' = nextState { ifsLinesDropped = nextCount }
-        filterLines nextState' source sink
+        filterLines nextState'
