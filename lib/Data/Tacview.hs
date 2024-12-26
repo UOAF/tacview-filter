@@ -29,6 +29,12 @@ txtExt = ".txt.acmi"
 -- | Objects in TacView are identified by 64-bit hex values.
 type TacId = Word64
 
+-- | Pull the (#) off the front of the line and parse the rest as a double.
+parseTime :: HasCallStack => Text -> Double
+parseTime t = case T.rational (T.tail t) of
+    Left e -> error (T.unpack t <> ": " <> e)
+    Right (v, _) -> v
+
 -- | Parse a hex value from the start of the given string.
 parseId :: HasCallStack => Text -> TacId
 parseId t = case T.hexadecimal t of
@@ -115,11 +121,6 @@ showProperties ps = -- Finagling - get T= first
 -- (which we've already parsed)
 lineProperties :: Text -> Properties
 lineProperties t = HM.fromList $ fmap parseProperty (tail . T.splitOn "," $ t)
-
--- | The BMS server currently serves BS g-force measurements which are always 0,
--- so then Tacview sessions show everything at 0G.
-sansG :: Properties -> Properties
-sansG = HM.delete "LateralGForce" . HM.delete "LongitudinalGForce" . HM.delete "VerticalGForce"
 
 -- | Update a pervious set of object properties with the new set
 -- (Updates are delta-encoded where unmentioned properties retain their previous value.)

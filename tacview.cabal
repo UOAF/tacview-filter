@@ -83,3 +83,15 @@ executable tacview-filter
                    text,
                    unordered-containers,
                    vector,
+
+executable tacview-replay
+    import: exeopts
+    hs-source-dirs: replay
+    main-is: Main.hs
+    build-depends: base,
+                   channel,
+                   clock,
+                   tacview,
+                   text,
+                   optparse-applicative,
+                   stm

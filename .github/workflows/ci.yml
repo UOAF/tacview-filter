@@ -20,11 +20,13 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Executable
-          path: _build/tacview-filter.exe
+          name: Executables
+          path: _build/
 
       - name: Release (if a new version is tagged)
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: _build/tacview-filter.exe
+          files: |
+            _build/tacview-filter.exe
+            _build/tacview-replay.exe

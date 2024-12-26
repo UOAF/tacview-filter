@@ -17,10 +17,7 @@ import Data.Maybe
 import Data.Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Read qualified as T
 import Text.Printf
-
-import GHC.Stack
 
 -- We have two jobs here which make up the bulk of our space savings:
 -- 1. Delta-encode property lines: don't repeat properties which were already mentioned
@@ -113,12 +110,6 @@ data DeltaFilterState = DeltaFilterState {
 startState :: DeltaFilterState
 startState = DeltaFilterState HM.empty 0.0 0.0 0
 
--- | Pull the (#) off the front of the line and parse the rest as a double.
-parseTime :: HasCallStack => Text -> Double
-parseTime t = case T.rational (T.tail t) of
-    Left e -> error (T.unpack t <> ": " <> e)
-    Right (v, _) -> v
-
 newtype DecimatedLines = DecimatedLines Int
 
 deltas
@@ -194,3 +185,8 @@ deltas' mid l !s source sink = let
             -- If it's a #<time> line, note the new time but dont write.
             then deltas s { dfsNow = parseTime l } source sink
             else passthrough
+
+-- | The BMS server currently serves BS g-force measurements which are always 0,
+-- so then Tacview sessions show everything at 0G.
+sansG :: Properties -> Properties
+sansG = HM.delete "LateralGForce" . HM.delete "LongitudinalGForce" . HM.delete "VerticalGForce"
