@@ -1,10 +1,12 @@
 # tacview-filter
 
-Reads an uncompressed ACMI file from stdin, shrinks it, and writes it to stdout.
-As a shell one-liner:
+Reads an ACMI file (from stdin, .txt.acmi, or .zip.acmi), shrinks it, and writes it out.
+Running
 ```
-funzip exported-from-game.zip.acmi | tacview-filter | zip -9 > smaller.zip.acmi
+tacview-filter.exe cool-flight.zip.acmi
 ```
+or dragging `cool-flight.zip.acmi` onto `tacview-filter.exe` in Windows Explorer
+will show progress in a terminal while writing out `cool-flight-filtered.zip.acmi`.
 
 This was originally designed for BMS, but can clean up Tacview files
 from any source (DCS, IL-2, ...). While it uses a few tricks, its main
