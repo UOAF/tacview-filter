@@ -95,3 +95,15 @@ executable tacview-replay
                    text,
                    optparse-applicative,
                    stm
+
+executable tacview-server
+    import: exeopts
+    hs-source-dirs: server
+    main-is: Main.hs
+    build-depends: base,
+                   channel,
+                   clock,
+                   tacview,
+                   text,
+                   optparse-applicative,
+                   stm

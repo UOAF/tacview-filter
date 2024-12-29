@@ -37,10 +37,10 @@ main = do
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
             progDesc "Replays ACMI files at the rate they were recorded"
-    parser >>= run
+    parser >>= runFilter
 
-run :: Args -> IO ()
-run Args{..} = do
+runFilter :: Args -> IO ()
+runFilter Args{..} = do
     linesRead <- newIORef 0
     let src = Tacview.source zipInput linesRead
         delayer sink = pipeline src (\source -> delay source sink Nothing)
