@@ -44,8 +44,8 @@ updateObject maybePrevious now i props = case maybePrevious of
         osCurrent = props
         osLastWritten = props
         osRate = rateOf $
-            -- showProperty is a no-op for non-position properties,
-            -- which this had better be.
+            -- showProperty is a no-op for non-position/numeric properties,
+            -- which "Type" had better be.
             showProperty <$> props HM.!? "Type"
         osNextWrite = now + osRate
         in (ObjectState{..}, Just $ showLine i props)

@@ -30,7 +30,7 @@ data Args = Args {
 parseArgs :: Parser Args
 parseArgs = Args <$> parseZipIn <*> parseNoProgress where
     parseZipIn = optional . strArgument $ mconcat [
-        help "Zipped ACMI to filter. Otherwise reads from stdin and writes to stdout",
+        help "ACMI to filter. Otherwise reads from stdin and writes to stdout",
         metavar "recording.zip.acmi"
         ]
     parseNoProgress = switch $ mconcat [
@@ -68,12 +68,12 @@ runFilter Args{..} = do
             src
             (\source -> filterLines Ignores.startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
-        thenDropTimes = pipeline thenDeltas dst
+        filterPipeline = pipeline thenDeltas dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress linesRead linesWritten
 
-    runnit <- race thenDropTimes prog
+    runnit <- race filterPipeline prog
 
     -- Gather up all our stats, placed in newtypes for easier readability here.
     let (((InputLines i, FilteredLines f), DecimatedLines d), OutputLines o) = case runnit of

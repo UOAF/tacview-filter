@@ -23,7 +23,7 @@ newtype Args = Args {
 parseArgs :: Parser Args
 parseArgs = Args <$> parseZipIn where
     parseZipIn = optional . strArgument $ mconcat [
-        help "Zipped ACMI to filter. Otherwise reads from stdin and writes to stdout",
+        help "ACMI to replay. Otherwise reads from stdin and writes to stdout",
         metavar "recording.zip.acmi"
         ]
 
@@ -37,10 +37,10 @@ main = do
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
             progDesc "Replays ACMI files at the rate they were recorded"
-    parser >>= runFilter
+    parser >>= run
 
-runFilter :: Args -> IO ()
-runFilter Args{..} = do
+run :: Args -> IO ()
+run Args{..} = do
     linesRead <- newIORef 0
     let src = Tacview.source zipInput linesRead
         delayer sink = pipeline src (\source -> delay source sink Nothing)
