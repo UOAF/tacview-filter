@@ -21,6 +21,7 @@ common shared
                  -Wno-missing-safe-haskell-mode
                  -Wno-monomorphism-restriction
                  -Wno-safe
+                 -Wno-type-defaults
                  -Wno-unsafe
                  -Wno-x-partial
                  -threaded
@@ -95,3 +96,15 @@ executable tacview-replay
                    text,
                    optparse-applicative,
                    stm
+
+executable tacview-server
+    import: exeopts
+    hs-source-dirs: server
+    main-is: Main.hs
+    build-depends: base,
+                   channel,
+                   tacview,
+                   bytestring,
+                   network,
+                   text,
+                   optparse-applicative,
