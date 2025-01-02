@@ -33,7 +33,8 @@ common shared
                         LambdaCase,
                         OverloadedRecordDot,
                         OverloadedStrings,
-                        RecordWildCards
+                        RecordWildCards,
+                        TupleSections
 
 common exeopts
     import: shared
