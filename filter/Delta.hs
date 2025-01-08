@@ -62,19 +62,6 @@ updateObject maybePrevious now i props = case maybePrevious of
                 in (next, deltaEncode i prev.osLastWritten merged)
             else (prev { osCurrent = merged }, Nothing)
 
--- | Delta-encode an object, generating a line with only properties that changed.
--- Returns Just the line, or Nothing if there's no changes.
-deltaEncode :: TacId -> Properties -> Properties -> Maybe Text
-deltaEncode i old new = let
-    deltaProps = deltaProperties old new
-    in if HM.null deltaProps
-        -- Don't write if the delta-encoded version is empty (nothing changed).
-        then Nothing
-        else Just $ showLine i deltaProps
-
-showLine :: TacId -> Properties -> Text
-showLine i props = (T.pack . printf "%x," $ i) <> showProperties props
-
 -- | Update rates of various object types, or 1 Hz by default.
 -- Uses recommendations from https://www.tacview.net/documentation/realtime/en/
 rateOf :: Maybe Text -> Double

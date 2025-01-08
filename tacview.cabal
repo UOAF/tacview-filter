@@ -105,7 +105,20 @@ executable tacview-server
     build-depends: base,
                    channel,
                    tacview,
+                   async,
                    bytestring,
+                   containers,
                    network,
+                   stm,
                    text,
                    optparse-applicative,
+                   vector
+
+executable test-client
+    import: exeopts
+    hs-source-dirs: client
+    main-is: Main.hs
+    build-depends: base,
+                   bytestring,
+                   network,
+                   text

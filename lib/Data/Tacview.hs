@@ -16,6 +16,7 @@ import Data.Text.Read qualified as T
 import Data.Word
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Text.Printf
 
 import GHC.Generics
 import GHC.Stack
@@ -163,3 +164,16 @@ deltaProperty _ _ = error "Mixing properties and positions"
 
 deltaCoord :: Text -> Text -> Text
 deltaCoord old new = if old == new then "" else new
+
+-- | Delta-encode an object, generating a line with only properties that changed.
+-- Returns Just the line, or Nothing if there's no changes.
+deltaEncode :: TacId -> Properties -> Properties -> Maybe Text
+deltaEncode i old new = let
+    deltaProps = deltaProperties old new
+    in if HM.null deltaProps
+        -- Don't write if the delta-encoded version is empty (nothing changed).
+        then Nothing
+        else Just $ showLine i deltaProps
+
+showLine :: TacId -> Properties -> Text
+showLine i props = (T.pack . printf "%x," $ i) <> showProperties props

@@ -1,14 +1,24 @@
 module Main where
 
 import Control.Concurrent
+import Control.Concurrent.Async
+import Control.Concurrent.Channel
+import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
 import Data.ByteString qualified as BS
+import Data.Function (fix)
 import Data.IORef
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as M
+import Data.Tacview
 import Data.Tacview.Source qualified as Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as T
 import Data.Text.Encoding qualified as T
+import Data.Vector (Vector)
+import Data.Vector qualified as V
 import Data.Word
 import Network.Socket
 import Network.Socket.ByteString qualified as NBS
@@ -51,14 +61,21 @@ main = do
 
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
-            progDesc "Replays ACMI files at the rate they were recorded"
+            progDesc "Serves and filters ACMI"
     parser >>= run
+
+data ServerState = ServerState {
+    clients :: TVar (Map SockAddr (Channel Text)),
+    globalLines :: TVar (Vector Text)
+}
 
 run :: Args -> IO ()
 run Args{..} = do
     linesRead <- newIORef 0
-    let _src = Tacview.source zipInput linesRead
-    server serverName port
+    ss <- ServerState <$> newTVarIO mempty <*> newTVarIO mempty
+    let src = Tacview.source zipInput linesRead
+        piped = pipeline src (feed ss)
+    concurrently_ piped (server ss serverName port)
 
 stderrLock :: MVar ()
 stderrLock = unsafePerformIO $ newMVar ()
@@ -69,8 +86,28 @@ slog :: String -> IO ()
 slog s = withMVar stderrLock . const $ do
     hPutStrLn stderr s
 
-server :: Text -> Word16 -> IO ()
-server serverName port = do
+feed :: ServerState -> Channel Text -> IO ()
+feed ss source = fix $ \loop -> atomically (readChannel source) >>= \case
+     Nothing -> pure ()
+     Just l -> do
+        feed' ss l
+        loop
+
+feed' :: ServerState -> Text -> IO ()
+feed' ServerState{..} l = do
+    let writeToClients = atomically $ do
+            cs <- readTVar clients
+            mapM_ (`writeChannel` l) cs
+    case idsOf l of
+        -- Assume some global event or something that every connecting client should get.
+        Nothing -> if "#" `T.isPrefixOf` l
+            then writeToClients
+            else atomically $ modifyTVar' globalLines $ flip V.snoc l
+        -- Write through for now
+        Just _ -> writeToClients
+
+server :: ServerState -> Text -> Word16 -> IO ()
+server ss serverName port = do
     let hints = defaultHints { addrFlags = [AI_PASSIVE], addrSocketType = Stream }
     bindAddr <- head <$> getAddrInfo (Just hints) Nothing (Just $ show port)
     bracket (openSocket bindAddr) close $ \lsock -> do
@@ -82,11 +119,27 @@ server serverName port = do
                 hPutStrLn stderr $ show addr <> " hung up"
         forever $ do
             (sock, addr) <- accept lsock
-            forkFinally (serve serverName sock addr) (const $ cleanup sock addr)
+            forkFinally (serve ss serverName sock addr) (const $ cleanup sock addr)
 
-serve :: Text -> Socket -> SockAddr -> IO ()
-serve serverName sock who = do
+serve :: ServerState -> Text -> Socket -> SockAddr -> IO ()
+serve ServerState{..} serverName sock who = do
     doHandshake serverName sock who
+    chan <- newChannelIO 1024
+    let register = atomically $ do
+            modifyTVar' clients $ M.insert who chan
+            readTVar globalLines
+        deregister _ = atomically $ modifyTVar' clients $ M.delete who
+    bracket register deregister $ \startingLines -> do
+        -- Send the current state of the world at the time of connection
+        -- TODO ALL THE THINGS WE'RE TRACKING TOO
+        let sl = T.unlines $ V.toList startingLines
+        NBS.sendAll sock . T.encodeUtf8 $ sl
+
+        fix $ \loop -> atomically (readChannel chan) >>= \case
+            Nothing -> pure ()
+            Just l -> do
+                NBS.sendAll sock . T.encodeUtf8 $ l <> "\n"
+                loop
 
 doHandshake :: Text -> Socket -> SockAddr ->  IO ()
 doHandshake tname sock who = do
