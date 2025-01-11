@@ -1,6 +1,6 @@
 {-# LANGUAGE StrictData #-}
 
-module Delta (deltas, DecimatedLines(..), DeltaFilterState, startState) where
+module Delta (deltas, DeltaFilterState, startState) where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
@@ -86,25 +86,20 @@ closeOut sink (i, o) = mapM_ (evalWriteChannel sink) $
 data DeltaFilterState = DeltaFilterState {
     dfsObjects :: HashMap TacId ObjectState,
     dfsNow :: Double,
-    dfsLastWrittenTime :: Double,
-    dfsLinesDropped :: Int
+    dfsLastWrittenTime :: Double
 }
 
 startState :: DeltaFilterState
-startState = DeltaFilterState HM.empty 0.0 0.0 0
-
-newtype DecimatedLines = DecimatedLines Int
+startState = DeltaFilterState HM.empty 0.0 0.0
 
 deltas
     :: DeltaFilterState
     -> Channel (Maybe LineIds, Text)
-    -> Channel Text -> IO DecimatedLines
+    -> Channel Text -> IO ()
 deltas !s source sink = atomically (readChannel source) >>= \case
     -- Delta-encode all remaining objects on the way out
     -- so we don't drop any last-second changes.
-    Nothing -> do
-        mapM_ (closeOut sink) $ HM.toList s.dfsObjects
-        pure $ DecimatedLines s.dfsLinesDropped
+    Nothing -> mapM_ (closeOut sink) $ HM.toList s.dfsObjects
     Just (mid, l) -> deltas' mid l s source sink
 
 deltas'
@@ -113,7 +108,7 @@ deltas'
     -> DeltaFilterState
     -> Channel (Maybe LineIds, Text)
     -> Channel Text
-    -> IO DecimatedLines
+    -> IO ()
 deltas' mid l !s source sink = let
     -- Helper to write a timestamp when we need a new one.
     writeTimestamp = do
@@ -153,8 +148,7 @@ deltas' mid l !s source sink = let
                 pure nlw
             let nextState = s {
                     dfsObjects = HM.insert p newState s.dfsObjects,
-                    dfsLastWrittenTime = fromMaybe s.dfsLastWrittenTime maybeNewLastWrittenTime,
-                    dfsLinesDropped = s.dfsLinesDropped + if isNothing deltaLine then 1 else 0
+                    dfsLastWrittenTime = fromMaybe s.dfsLastWrittenTime maybeNewLastWrittenTime
                 }
             deltas nextState source sink
         Just (RemLine p) -> axeIt p

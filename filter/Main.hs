@@ -76,7 +76,7 @@ runFilter Args{..} = do
     runnit <- race filterPipeline prog
 
     -- Gather up all our stats, placed in newtypes for easier readability here.
-    let (((InputLines i, FilteredLines f), DecimatedLines d), OutputLines o) = case runnit of
+    let (((InputLines i, FilteredLines f), ()), OutputLines o) = case runnit of
             Left l -> l
             Right () -> error "absurd: progress should run forever"
 
@@ -90,7 +90,6 @@ runFilter Args{..} = do
     hPutStrLn stderr $ "in " <> dts <> " seconds"
     hPutStrLn stderr $ show i <> " lines read"
     hPutStrLn stderr $ show f <> " lines ignored"
-    hPutStrLn stderr $ show d <> " lines decimated"
     -- hPutStrLn stderr $ show t <> " extra timestamps dropped"
     hPutStrLn stderr $ show o <> " lines written"
     hPutStrLn stderr $ percentage o i <> " total lines in/out"
