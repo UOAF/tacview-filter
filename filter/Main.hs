@@ -6,9 +6,7 @@ import Control.Concurrent.Channel
 import Control.Monad
 import Data.Function (fix)
 import Data.IORef
-import Data.Tacview.Sink (OutputLines(..))
 import Data.Tacview.Sink qualified as Tacview
-import Data.Tacview.Source (InputLines(..))
 import Data.Tacview.Source qualified as Tacview
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
@@ -76,7 +74,7 @@ runFilter Args{..} = do
     runnit <- race filterPipeline prog
 
     -- Gather up all our stats, placed in newtypes for easier readability here.
-    let (((InputLines i, FilteredLines f), ()), OutputLines o) = case runnit of
+    let ((((), FilteredLines f), ()), ()) = case runnit of
             Left l -> l
             Right () -> error "absurd: progress should run forever"
 
@@ -88,10 +86,11 @@ runFilter Args{..} = do
         hClearFromCursorToLineBeginning stderr
         hCursorDownLine stderr 0
     hPutStrLn stderr $ "in " <> dts <> " seconds"
-    hPutStrLn stderr $ show i <> " lines read"
     hPutStrLn stderr $ show f <> " lines ignored"
-    -- hPutStrLn stderr $ show t <> " extra timestamps dropped"
-    hPutStrLn stderr $ show o <> " lines written"
+    -- Hmm: https://gitlab.haskell.org/ghc/ghc/-/issues/22468
+    -- https://github.com/haskell/core-libraries-committee/issues/112
+    i <- readIORef linesRead
+    o <- readIORef linesWritten
     hPutStrLn stderr $ percentage o i <> " total lines in/out"
     let perSec = fromIntegral i / toRational dt
     hPutStrLn stderr $ show (round perSec :: Integer) <> " lines/second"

@@ -1,5 +1,4 @@
 module Data.Tacview.Source (
-    InputLines(..),
     source
 ) where
 
@@ -14,8 +13,6 @@ import Data.Map.Strict qualified as M
 import Data.Tacview (zipExt, txtExt)
 import Data.Text (Text)
 import System.IO
-
-newtype InputLines = InputLines Int
 
 sourceC :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) ())
 sourceC = \case
@@ -43,7 +40,7 @@ source
     :: Maybe FilePath
     -> IORef Int
     -> Channel Text
-    -> IO InputLines
+    -> IO ()
 source mfp ior c = do
     srcC <- sourceC mfp
     let go l = do
@@ -51,7 +48,3 @@ source mfp ior c = do
             atomicModifyIORef' ior $ \p -> (p + 1, ())
     runConduitRes $
         srcC .| decodeUtf8C .| linesUnboundedC .| mapM_C (liftIO . go)
-    -- Hmm: https://gitlab.haskell.org/ghc/ghc/-/issues/22468
-    -- https://github.com/haskell/core-libraries-committee/issues/112
-    InputLines <$> readIORef ior
-

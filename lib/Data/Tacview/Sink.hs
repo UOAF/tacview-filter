@@ -1,7 +1,4 @@
-module Data.Tacview.Sink (
-    OutputLines(..),
-    sink
-) where
+module Data.Tacview.Sink (sink) where
 
 import Codec.Archive.Zip
 import Codec.Archive.Zip.Internal qualified as ZI
@@ -17,14 +14,12 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import System.IO
 
-newtype OutputLines = OutputLines Int
-
 -- | Write everything out when we're done.
 sink
     :: Maybe FilePath
     -> IORef Int
     -> Channel Text
-    -> IO OutputLines
+    -> IO ()
 sink mfp iow source = do
     sinker <- sinkStream mfp
     let srcC :: ConduitT () BS.ByteString (ResourceT IO) ()
@@ -34,7 +29,6 @@ sink mfp iow source = do
             .| unlinesC
             .| encodeUtf8C
     sinker srcC
-    OutputLines <$> readIORef iow
 
 sinkStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
 sinkStream = \case
