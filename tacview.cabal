@@ -53,6 +53,7 @@ library channel
 library
     import: shared
     exposed-modules: Data.Tacview
+                     Data.Tacview.Ignores
                      Data.Tacview.Sink
                      Data.Tacview.Source
     hs-source-dirs: lib
@@ -61,7 +62,6 @@ library
                    bytestring,
                    conduit,
                    containers,
-                   deepseq,
                    stm,
                    text,
                    unordered-containers,
@@ -73,7 +73,6 @@ executable tacview-filter
     hs-source-dirs: filter
     main-is: Main.hs
     other-modules: Delta,
-                   Ignores
     build-depends: base,
                    channel,
                    tacview,
@@ -84,7 +83,6 @@ executable tacview-filter
                    stm,
                    text,
                    unordered-containers,
-                   vector,
 
 executable tacview-replay
     import: exeopts

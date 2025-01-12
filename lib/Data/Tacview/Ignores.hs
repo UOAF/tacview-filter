@@ -1,11 +1,13 @@
 {-# LANGUAGE StrictData #-}
 
-module Ignores (filterLines, FilteredLines(..), IgnoreFilterState, startState) where
+-- | (Mostly-BMS-specific) filters to ignore objects and events in the Tacview stream
+module Data.Tacview.Ignores (filterLines, FilteredLines(..), IgnoreFilterState, startState) where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.Tacview
 import Data.Text (Text)
@@ -96,9 +98,9 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
             (filtered, nextState) = go p
             -- Property lines will update our ignore lists,
             -- then get filtered on the _updated_ version of those, fs'
-            go (PropLine pid _) = (p', fs') where
+            go (PropLine pid rawProps) = (p', fs') where
                 fs' = updateIgnores pid l fs
-                p' = unlessMaybe (HS.member pid fs'.ifsIgnored) p
+                p' = unlessMaybe (HS.member pid fs'.ifsIgnored) (PropLine pid $ sansG rawProps)
             -- Skip a removal line if we're ignoring the object.
             -- The next state is the current one with the ID removed.
             go (RemLine r) = (p', fs') where
@@ -115,3 +117,8 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
             nextState' = nextState { ifsLinesDropped = nextCount }
         filterLines nextState' source sink
+
+-- | The BMS server currently serves BS g-force measurements which are always 0,
+-- so then Tacview sessions show everything at 0G.
+sansG :: Properties -> Properties
+sansG = HM.delete "LateralGForce" . HM.delete "LongitudinalGForce" . HM.delete "VerticalGForce"

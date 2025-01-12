@@ -6,6 +6,7 @@ import Control.Concurrent.Channel
 import Control.Monad
 import Data.Function (fix)
 import Data.IORef
+import Data.Tacview.Ignores as Ignores
 import Data.Tacview.Sink qualified as Tacview
 import Data.Tacview.Source qualified as Tacview
 import Data.Text qualified as T
@@ -18,7 +19,6 @@ import System.IO
 import Text.Printf
 
 import Delta
-import Ignores
 
 data Args = Args {
     zipInput :: Maybe FilePath,

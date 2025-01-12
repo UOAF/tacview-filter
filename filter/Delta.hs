@@ -133,10 +133,9 @@ deltas' p l !s source sink = let
         evalWriteChannel sink l
         deltas s { dfsLastWrittenTime = s.dfsNow } source sink
     in case p of
-        PropLine pid rawProps -> do
-            -- Parse the line's properties and see if it's anything we're tracking.
-            let props = sansG rawProps
-                prev = s.dfsObjects HM.!? pid
+        PropLine pid props -> do
+            -- Is it anything we're tracking?
+            let prev = s.dfsObjects HM.!? pid
                 -- Update the properties we're tracking.
                 (newState, deltaLine) = updateObject prev s.dfsNow pid props
             -- If we have a delta line...
@@ -159,8 +158,3 @@ deltas' p l !s source sink = let
         -- If it's a #<time> line, note the new time but dont write.
         TimeLine t -> deltas s { dfsNow = t } source sink
         _ -> passthrough
-
--- | The BMS server currently serves BS g-force measurements which are always 0,
--- so then Tacview sessions show everything at 0G.
-sansG :: Properties -> Properties
-sansG = HM.delete "LateralGForce" . HM.delete "LongitudinalGForce" . HM.delete "VerticalGForce"
