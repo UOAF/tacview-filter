@@ -112,7 +112,7 @@ deltas'
 deltas' p l !s source sink = let
     -- Helper to write a timestamp when we need a new one.
     writeTimestamp = when (s.dfsNow /= s.dfsLastWrittenTime) $
-        evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%f" s.dfsNow)
+        evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%0.2f" s.dfsNow)
     -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt x = do
         -- We might not have written in in a bit,
