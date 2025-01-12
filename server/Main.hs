@@ -12,6 +12,7 @@ import Data.IORef
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Tacview
+import Data.Tacview.Ignores as Ignores
 import Data.Tacview.Source qualified as Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -74,7 +75,10 @@ run Args{..} = do
     linesRead <- newIORef 0
     ss <- ServerState <$> newTVarIO mempty <*> newTVarIO mempty
     let src = Tacview.source zipInput linesRead
-        piped = pipeline src (feed ss)
+        ignore sink = pipeline
+            src
+            (\source -> filterLines Ignores.startState source sink)
+        piped = pipeline ignore (feed ss)
     concurrently_ piped (server ss serverName port)
 
 stderrLock :: MVar ()
@@ -86,16 +90,16 @@ slog :: String -> IO ()
 slog s = withMVar stderrLock . const $ do
     hPutStrLn stderr s
 
-feed :: ServerState -> Channel Text -> IO ()
+feed :: ServerState -> Channel (ParsedLine, Text) -> IO ()
 feed ss source = fix $ \loop -> atomically (readChannel source) >>= \case
      Nothing -> pure ()
-     Just l -> do
-        feed' ss l
+     Just (p, l) -> do
+        feed' ss p l
         loop
 
-feed' :: ServerState -> Text -> IO ()
-feed' ServerState{..} l = do
-    case parseLine l of
+feed' :: ServerState -> ParsedLine -> Text -> IO ()
+feed' ServerState{..} p l = do
+    case p of
         -- Assume some global event or something that every connecting client should get.
         GlobalLine -> atomically $ modifyTVar' globalLines $ flip V.snoc l
         -- Write through for now

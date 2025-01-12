@@ -173,7 +173,8 @@ deltaEncode i old new = let
     in if HM.null deltaProps
         -- Don't write if the delta-encoded version is empty (nothing changed).
         then Nothing
-        else Just $ showLine i deltaProps
+        else Just $ buildLine i deltaProps
 
-showLine :: TacId -> Properties -> Text
-showLine i props = (T.pack . printf "%x," $ i) <> showProperties props
+-- | Build a line from its ID and property map.
+buildLine :: TacId -> Properties -> Text
+buildLine i props = (T.pack . printf "%x," $ i) <> showProperties props

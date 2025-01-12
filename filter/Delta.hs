@@ -44,7 +44,7 @@ updateObject maybePrevious now i props = case maybePrevious of
             -- which "Type" had better be.
             showProperty <$> props HM.!? "Type"
         osNextWrite = now + osRate
-        in (ObjectState{..}, Just $ showLine i props)
+        in (ObjectState{..}, Just $ buildLine i props)
     Just prev -> let
         -- We have a previous record of this object.
         -- Merge its properties into the current set,
