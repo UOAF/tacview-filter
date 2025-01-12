@@ -95,16 +95,13 @@ feed ss source = fix $ \loop -> atomically (readChannel source) >>= \case
 
 feed' :: ServerState -> Text -> IO ()
 feed' ServerState{..} l = do
-    let writeToClients = atomically $ do
+    case parseLine l of
+        -- Assume some global event or something that every connecting client should get.
+        GlobalLine -> atomically $ modifyTVar' globalLines $ flip V.snoc l
+        -- Write through for now
+        _ -> atomically $ do
             cs <- readTVar clients
             mapM_ (`writeChannel` l) cs
-    case idsOf l of
-        -- Assume some global event or something that every connecting client should get.
-        Nothing -> if "#" `T.isPrefixOf` l
-            then writeToClients
-            else atomically $ modifyTVar' globalLines $ flip V.snoc l
-        -- Write through for now
-        Just _ -> writeToClients
 
 server :: ServerState -> Text -> Word16 -> IO ()
 server ss serverName port = do

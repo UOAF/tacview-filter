@@ -1,9 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE StrictData #-}
 
 module Data.Tacview where
 
-import Control.DeepSeq
 import Data.Char (isDigit)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -51,35 +49,37 @@ maybeId t = case T.hexadecimal t of
     Right (v, rest) -> if rest == "" || T.isPrefixOf "," rest then Just v else Nothing
 
 -- | For filtering purposes, each line is either:
-data LineIds =
+data ParsedLine =
+    TimeLine Double |
     -- | A property line: @id,prop1,prop2@
     --   This introduces objects if we haven't seen them before.
-    PropLine TacId |
+    PropLine TacId Properties |
     -- | A removal line: @-id@
     RemLine TacId |
     -- | An event line: @0,Event=...|id1|id2|...@
     --   This can have multiple IDs!
-    EventLine (HashSet TacId)
+    EventLine (HashSet TacId) |
+    -- | Global config or something else we don't care to parse
+    GlobalLine
     deriving stock (Show, Generic)
-
-instance NFData LineIds
 
 -- | Parse the `LineIds` of the line.
 --   (or `Nothing` if it's not a line that affects filtering)
-idsOf :: Text -> Maybe LineIds
-idsOf l
+parseLine :: Text -> ParsedLine
+parseLine l
+    | T.isPrefixOf "#" l = TimeLine $ parseTime l
     | T.isPrefixOf "0,Event=" l = let
         toks = tail $ T.splitOn "|" l
         ids = mapMaybe maybeId toks
-        in Just . EventLine $ HS.fromList ids
-    | T.isPrefixOf "-" l = Just . RemLine $ parseId (T.tail l)
-    | T.isPrefixOf "0," l = Nothing -- Don't try to parse global config.
+        in EventLine (HS.fromList ids)
+    | T.isPrefixOf "-" l = RemLine $ parseId (T.tail l)
+    | T.isPrefixOf "0," l = GlobalLine -- Don't try to parse global config.
     | otherwise = case maybeId l of
-        Just i -> Just $ PropLine i
-        Nothing -> Nothing
+        Just i -> PropLine i (lineProperties l)
+        Nothing -> GlobalLine
 
 -- | Positions are a special case, where each coordinate can be delta-encoded.
-data Property = Property Text | Position (Vector Text) deriving stock (Eq)
+data Property = Property Text | Position (Vector Text) deriving stock (Show, Eq)
 
 showProperty :: Property -> Text
 showProperty (Property t) = shaveZeroes t

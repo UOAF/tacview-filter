@@ -87,30 +87,30 @@ newtype FilteredLines = FilteredLines Int
 filterLines
     :: IgnoreFilterState
     -> Channel Text
-    -> Channel (Maybe LineIds, Text)
+    -> Channel (ParsedLine, Text)
     -> IO FilteredLines
 filterLines !fs source sink = atomically (readChannel source) >>= \case
     Nothing -> pure $ FilteredLines fs.ifsLinesDropped
     Just l -> do
-        let ids = idsOf l
-            (filtered, nextState) = go ids
+        let p = parseLine l
+            (filtered, nextState) = go p
             -- Property lines will update our ignore lists,
             -- then get filtered on the _updated_ version of those, fs'
-            go (Just (PropLine p)) = (l', fs') where
-                fs' = updateIgnores p l fs
-                l' = unlessMaybe (HS.member p fs'.ifsIgnored) l
+            go (PropLine pid _) = (p', fs') where
+                fs' = updateIgnores pid l fs
+                p' = unlessMaybe (HS.member pid fs'.ifsIgnored) p
             -- Skip a removal line if we're ignoring the object.
             -- The next state is the current one with the ID removed.
-            go (Just (RemLine r)) = (l', fs') where
-                l' = unlessMaybe (HS.member r fs.ifsIgnored) l
+            go (RemLine r) = (p', fs') where
+                p' = unlessMaybe (HS.member r fs.ifsIgnored) p
                 fs' = removeId r fs
             -- Skip an event if it's ignoreable.
-            go (Just (EventLine es)) = (l', fs) where
-                l' = unlessMaybe (ignoreableEvent es fs) l
-            -- Pass the current line through, no change to state.
-            go Nothing = (Just l, fs)
-            fi = (ids,) <$> filtered
-        mapM_ (evalWriteChannel sink) fi
+            go (EventLine es) = (p', fs) where
+                p' = unlessMaybe (ignoreableEvent es fs) p
+            -- Pass the rest, no change to state.
+            go _ = (Just p, fs)
+            pt = (,l) <$> filtered
+        mapM_ (atomically . writeChannel sink) pt
         -- Add one if we filtered a line out.
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
             nextState' = nextState { ifsLinesDropped = nextCount }

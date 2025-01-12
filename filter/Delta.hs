@@ -94,22 +94,22 @@ startState = DeltaFilterState HM.empty 0.0 0.0
 
 deltas
     :: DeltaFilterState
-    -> Channel (Maybe LineIds, Text)
+    -> Channel (ParsedLine, Text)
     -> Channel Text -> IO ()
 deltas !s source sink = atomically (readChannel source) >>= \case
     -- Delta-encode all remaining objects on the way out
     -- so we don't drop any last-second changes.
     Nothing -> mapM_ (closeOut sink) $ HM.toList s.dfsObjects
-    Just (mid, l) -> deltas' mid l s source sink
+    Just (p, l) -> deltas' p l s source sink
 
 deltas'
-    :: Maybe LineIds
+    :: ParsedLine
     -> Text
     -> DeltaFilterState
-    -> Channel (Maybe LineIds, Text)
+    -> Channel (ParsedLine, Text)
     -> Channel Text
     -> IO ()
-deltas' mid l !s source sink = let
+deltas' p l !s source sink = let
     -- Helper to write a timestamp when we need a new one.
     writeTimestamp = do
         when (s.dfsNow /= s.dfsLastWrittenTime) $
@@ -134,34 +134,33 @@ deltas' mid l !s source sink = let
         newLastWritten <- writeTimestamp
         evalWriteChannel sink l
         deltas s { dfsLastWrittenTime = newLastWritten } source sink
-    in case mid of
-        Just (PropLine p) -> do
+    in case p of
+        PropLine pid rawProps -> do
             -- Parse the line's properties and see if it's anything we're tracking.
-            let props = sansG . lineProperties $ l
-                prev = s.dfsObjects HM.!? p
+            let props = sansG rawProps
+                prev = s.dfsObjects HM.!? pid
                 -- Update the properties we're tracking.
-                (newState, deltaLine) = updateObject prev s.dfsNow p props
+                (newState, deltaLine) = updateObject prev s.dfsNow pid props
             -- If we have a delta line...
             maybeNewLastWrittenTime <- forM deltaLine $ \d -> do
                 nlw <- writeTimestamp
                 evalWriteChannel sink d
                 pure nlw
             let nextState = s {
-                    dfsObjects = HM.insert p newState s.dfsObjects,
+                    dfsObjects = HM.insert pid newState s.dfsObjects,
                     dfsLastWrittenTime = fromMaybe s.dfsLastWrittenTime maybeNewLastWrittenTime
                 }
             deltas nextState source sink
-        Just (RemLine p) -> axeIt p
+        RemLine pid -> axeIt pid
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
-        Just (EventLine es) -> if T.isInfixOf "Event=LeftArea" l
+        EventLine es -> if T.isInfixOf "Event=LeftArea" l
             then assert (HS.size es == 1) $ do
                 axeIt (head $ HS.toList es)
             else passthrough
-        Nothing -> if T.isPrefixOf "#" l
-            -- If it's a #<time> line, note the new time but dont write.
-            then deltas s { dfsNow = parseTime l } source sink
-            else passthrough
+        -- If it's a #<time> line, note the new time but dont write.
+        TimeLine t -> deltas s { dfsNow = t } source sink
+        _ -> passthrough
 
 -- | The BMS server currently serves BS g-force measurements which are always 0,
 -- so then Tacview sessions show everything at 0G.
