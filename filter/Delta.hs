@@ -111,10 +111,8 @@ deltas'
     -> IO ()
 deltas' p l !s source sink = let
     -- Helper to write a timestamp when we need a new one.
-    writeTimestamp = do
-        when (s.dfsNow /= s.dfsLastWrittenTime) $
-            evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%f" s.dfsNow)
-        pure s.dfsNow
+    writeTimestamp = when (s.dfsNow /= s.dfsLastWrittenTime) $
+        evalWriteChannel sink $ "#" <> (shaveZeroes . T.pack $ printf "%f" s.dfsNow)
     -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt x = do
         -- We might not have written in in a bit,
@@ -122,18 +120,18 @@ deltas' p l !s source sink = let
         case s.dfsObjects HM.!? x of
             Just going -> closeOut sink (x, going)
             Nothing -> pure ()
-        newLastWritten <- writeTimestamp
+        writeTimestamp
         evalWriteChannel sink l
         let newState = s {
-                dfsLastWrittenTime = newLastWritten,
+                dfsLastWrittenTime = s.dfsNow,
                 dfsObjects = HM.delete x s.dfsObjects
             }
         deltas newState source sink
     -- Helper to pass the line through without doing anything, taking the time.
     passthrough = do
-        newLastWritten <- writeTimestamp
+        writeTimestamp
         evalWriteChannel sink l
-        deltas s { dfsLastWrittenTime = newLastWritten } source sink
+        deltas s { dfsLastWrittenTime = s.dfsNow } source sink
     in case p of
         PropLine pid rawProps -> do
             -- Parse the line's properties and see if it's anything we're tracking.
@@ -142,13 +140,13 @@ deltas' p l !s source sink = let
                 -- Update the properties we're tracking.
                 (newState, deltaLine) = updateObject prev s.dfsNow pid props
             -- If we have a delta line...
-            maybeNewLastWrittenTime <- forM deltaLine $ \d -> do
-                nlw <- writeTimestamp
+            maybeNewTime <- forM deltaLine $ \d -> do
+                writeTimestamp
                 evalWriteChannel sink d
-                pure nlw
+                pure s.dfsNow
             let nextState = s {
                     dfsObjects = HM.insert pid newState s.dfsObjects,
-                    dfsLastWrittenTime = fromMaybe s.dfsLastWrittenTime maybeNewLastWrittenTime
+                    dfsLastWrittenTime = fromMaybe s.dfsLastWrittenTime maybeNewTime
                 }
             deltas nextState source sink
         RemLine pid -> axeIt pid
