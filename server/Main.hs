@@ -138,7 +138,7 @@ feed' !ss p l = let
     -- A timestamp, when we need a new one.
     writeTimestamp :: Maybe Text
     writeTimestamp = if (ss.now /= ss.lastWrittenTime)
-        then Just $ "#" <> (shaveZeroes . T.pack $ printf "%0.2f" ss.now)
+        then Just $ "#" <> (shaveZeroes . T.pack $ printf "%f" ss.now)
         else Nothing
     -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt :: TacId -> IO ([Maybe Text], ServerState)
