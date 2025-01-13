@@ -5,6 +5,7 @@ module Control.Concurrent.Channel(
     newChannel,
     newChannelIO,
     readChannel,
+    tryWriteChannel,
     writeChannel,
     evalWriteChannel,
     closeChannel,
@@ -15,6 +16,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.STM
 import Control.DeepSeq
 import Control.Exception
+import Control.Monad
 import Numeric.Natural
 
 data Channel a = Channel {
@@ -41,6 +43,16 @@ readChannel c = do
             if wasClosed
                 then pure Nothing
                 else retry
+
+tryWriteChannel :: Channel a -> a -> STM Bool
+tryWriteChannel c !v = do
+    wasClosed <- readTVar c.closed
+    if wasClosed
+        then error "write to closed channel"
+        else do
+            wasFull <- isFullTBQueue c.q
+            unless (wasFull) $ writeTBQueue c.q v
+            pure $ not wasFull
 
 writeChannel :: Channel a -> a -> STM ()
 writeChannel c !v = do

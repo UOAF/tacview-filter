@@ -53,6 +53,7 @@ library channel
 library
     import: shared
     exposed-modules: Data.Tacview
+                     Data.Tacview.Delta
                      Data.Tacview.Ignores
                      Data.Tacview.Sink
                      Data.Tacview.Source
@@ -110,6 +111,7 @@ executable tacview-server
                    stm,
                    text,
                    optparse-applicative,
+                   unordered-containers,
                    vector
 
 executable test-client

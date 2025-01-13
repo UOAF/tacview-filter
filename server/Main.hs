@@ -9,14 +9,18 @@ import Control.Monad
 import Data.ByteString qualified as BS
 import Data.Function (fix)
 import Data.IORef
+import Data.HashMap.Strict (HashMap)
+import Data.HashMap.Strict qualified as HM
+import Data.HashSet qualified as HS
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
+import Data.Maybe
 import Data.Tacview
+import Data.Tacview.Delta
 import Data.Tacview.Ignores as Ignores
 import Data.Tacview.Source qualified as Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
 import Data.Text.Encoding qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
@@ -27,6 +31,7 @@ import Options.Applicative
 import System.IO
 import System.IO.Unsafe
 import System.Timeout
+import Text.Printf
 
 data Args = Args {
     zipInput :: Maybe FilePath,
@@ -67,19 +72,32 @@ main = do
 
 data ServerState = ServerState {
     clients :: TVar (Map SockAddr (Channel Text)),
-    globalLines :: TVar (Vector Text)
+    globalLines :: TVar (Vector Text),
+    liveObjects :: TVar (HashMap TacId ObjectState),
+    now :: Double,
+    lastWrittenTime :: Double
 }
 
 run :: Args -> IO ()
 run Args{..} = do
     linesRead <- newIORef 0
-    ss <- ServerState <$> newTVarIO mempty <*> newTVarIO mempty
+    ss <- ServerState <$>
+        newTVarIO mempty <*> newTVarIO mempty <*> newTVarIO mempty <*> pure 0 <*> pure 0
     let src = Tacview.source zipInput linesRead
         ignore sink = pipeline
             src
             (\source -> filterLines Ignores.startState source sink)
         piped = pipeline ignore (feed ss)
-    concurrently_ piped (server ss serverName port)
+    race_ piped (server ss serverName port)
+
+    -- Wait for all clients?
+    -- This fails with blocked indefinitely because
+    -- https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/
+    {-
+    NO atomically $ do
+    NO  clients <- readTVar ss.clients
+    NO  check $ M.null clients
+    -}
 
 stderrLock :: MVar ()
 stderrLock = unsafePerformIO $ newMVar ()
@@ -90,22 +108,85 @@ slog :: String -> IO ()
 slog s = withMVar stderrLock . const $ do
     hPutStrLn stderr s
 
-feed :: ServerState -> Channel (ParsedLine, Text) -> IO ()
-feed ss source = fix $ \loop -> atomically (readChannel source) >>= \case
-     Nothing -> pure ()
-     Just (p, l) -> do
-        feed' ss p l
-        loop
+-- | Write out to each client.
+--
+-- TODO: Use tryWriteChannel and drop guys who can't keep up.
+writeToClients :: ServerState -> [Text] -> IO ()
+writeToClients ss ts = do
+    chans <- M.elems <$> readTVarIO ss.clients
+    forM_ chans $ \c -> mapM_ (evalWriteChannel c) ts
 
-feed' :: ServerState -> ParsedLine -> Text -> IO ()
-feed' ServerState{..} p l = do
-    case p of
+-- We might not have written in in a bit,
+-- so make sure its last known state goes out.
+closeOut :: (TacId, ObjectState) -> Maybe Text
+closeOut (i, o) = deltaEncode i o.osLastWritten o.osCurrent
+
+feed :: ServerState -> Channel (ParsedLine, Text) -> IO ()
+feed ss source = atomically (readChannel source) >>= \case
+     Nothing -> do
+        -- For each client, close out each remaining object.
+        liveObjects <- readTVarIO ss.liveObjects
+        let allClosed = catMaybes $ closeOut <$> HM.toList liveObjects
+        writeToClients ss allClosed
+     Just (p, l) -> do
+        (newLines, newState) <- feed' ss p l
+        writeToClients newState $ catMaybes newLines
+        feed newState source
+
+feed' :: ServerState -> ParsedLine -> Text -> IO ([Maybe Text], ServerState)
+feed' !ss p l = let
+    -- A timestamp, when we need a new one.
+    writeTimestamp :: Maybe Text
+    writeTimestamp = if (ss.now /= ss.lastWrittenTime)
+        then Just $ "#" <> (shaveZeroes . T.pack $ printf "%0.2f" ss.now)
+        else Nothing
+    -- Helper to remove the object from the set we're tracking, taking the ID
+    axeIt :: TacId -> IO ([Maybe Text], ServerState)
+    axeIt x = do
+        -- We might not have written in in a bit,
+        -- so make sure its last known state goes out.
+        co <- atomically $ do
+            lo <- readTVar ss.liveObjects
+            case lo HM.!? x of
+                Just going -> do
+                    writeTVar ss.liveObjects $ HM.delete x lo
+                    pure $ closeOut (x, going)
+                Nothing -> pure Nothing
+
+        let newState = ss { lastWrittenTime = ss.now }
+        pure ([co, writeTimestamp, Just l], newState)
+    -- Helper to pass the line through without doing anything, taking the time.
+    passthrough :: IO ([Maybe Text], ServerState)
+    passthrough = let
+        newState = ss { lastWrittenTime = ss.now }
+        in pure ([writeTimestamp, Just l], newState)
+    in case p of
+        PropLine pid props -> do
+            -- Is it anything we're tracking?
+            deltaLine <- atomically $ do
+                lo <- readTVar ss.liveObjects
+                let prev = lo HM.!? pid
+                -- Update the properties we're tracking.
+                let (newState, dl) = updateObject prev ss.now pid props
+                writeTVar ss.liveObjects $ HM.insert pid newState lo
+                pure dl
+            -- If we have a delta line...
+            case deltaLine of
+                Just dl -> pure ([writeTimestamp, Just dl], ss { lastWrittenTime = ss.now })
+                Nothing -> pure ([], ss) -- No writes, just the atomic update to liveObjects
+        RemLine pid -> axeIt pid
+        -- If it's a "left the area" event, assume its deletion will
+        -- come next. We want to write out any last properties before going.
+        EventLine es -> if T.isInfixOf "Event=LeftArea" l
+            then assert (HS.size es == 1) $ do
+                axeIt (head $ HS.toList es)
+            else passthrough
+        -- If it's a #<time> line, note the new time but don't write.
+        TimeLine t -> pure ([], ss { now = t })
         -- Assume some global event or something that every connecting client should get.
-        GlobalLine -> atomically $ modifyTVar' globalLines $ flip V.snoc l
-        -- Write through for now
-        _ -> atomically $ do
-            cs <- readTVar clients
-            mapM_ (`writeChannel` l) cs
+        GlobalLine -> do
+            atomically $ modifyTVar' ss.globalLines $ flip V.snoc l
+            passthrough
 
 server :: ServerState -> Text -> Word16 -> IO ()
 server ss serverName port = do
@@ -123,19 +204,25 @@ server ss serverName port = do
             forkFinally (serve ss serverName sock addr) (const $ cleanup sock addr)
 
 serve :: ServerState -> Text -> Socket -> SockAddr -> IO ()
-serve ServerState{..} serverName sock who = do
+serve ss serverName sock who = do
     doHandshake serverName sock who
     chan <- newChannelIO 1024
     let register = atomically $ do
-            modifyTVar' clients $ M.insert who chan
-            readTVar globalLines
-        deregister _ = atomically $ modifyTVar' clients $ M.delete who
-    bracket register deregister $ \startingLines -> do
-        -- Send the current state of the world at the time of connection
-        -- TODO ALL THE THINGS WE'RE TRACKING TOO
-        let sl = T.unlines $ V.toList startingLines
-        NBS.sendAll sock . T.encodeUtf8 $ sl
+            -- It's important we atomically add ourselves *and* get the current state of the world.
+            -- This guarantees we're synced up with everyone and ready for the next update
+            -- to arrive on our channel.
+            modifyTVar' ss.clients $ M.insert who chan
+            gl <- readTVar ss.globalLines
+            lo <- readTVar ss.liveObjects
+            pure (gl, lo)
+        deregister _ = atomically $ modifyTVar' ss.clients $ M.delete who
+    bracket register deregister $ \(gl, lo) -> do
+        -- Send the current state of the world at the time of connection.
+        let glLines = V.toList gl
+            loLines = fmap (\(k, v) -> buildLine k v.osCurrent) $ HM.toList lo
+        NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> loLines
 
+        -- TODO: Drain channel and send as a chunk.
         fix $ \loop -> atomically (readChannel chan) >>= \case
             Nothing -> pure ()
             Just l -> do
