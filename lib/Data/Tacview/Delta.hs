@@ -55,6 +55,10 @@ updateObject maybePrevious now i props = case maybePrevious of
                 in (next, deltaEncode i prev.osLastWritten merged)
             else (prev { osCurrent = merged }, Nothing)
 
+-- | Make sure an object's last known state goes out before we remove it, etc.
+closeOut :: TacId -> ObjectState -> Maybe Text
+closeOut i o = deltaEncode i o.osLastWritten o.osCurrent
+
 -- | Update rates of various object types, or 1 Hz by default.
 -- Uses recommendations from https://www.tacview.net/documentation/realtime/en/
 rateOf :: Maybe Text -> Double

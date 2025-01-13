@@ -116,17 +116,12 @@ writeToClients ss ts = do
     chans <- M.elems <$> readTVarIO ss.clients
     forM_ chans $ \c -> mapM_ (evalWriteChannel c) ts
 
--- We might not have written in in a bit,
--- so make sure its last known state goes out.
-closeOut :: (TacId, ObjectState) -> Maybe Text
-closeOut (i, o) = deltaEncode i o.osLastWritten o.osCurrent
-
 feed :: ServerState -> Channel (ParsedLine, Text) -> IO ()
 feed ss source = atomically (readChannel source) >>= \case
      Nothing -> do
         -- For each client, close out each remaining object.
         liveObjects <- readTVarIO ss.liveObjects
-        let allClosed = catMaybes $ closeOut <$> HM.toList liveObjects
+        let allClosed = catMaybes $ uncurry closeOut <$> HM.toList liveObjects
         writeToClients ss allClosed
      Just (p, l) -> do
         (newLines, newState) <- feed' ss p l
@@ -150,7 +145,7 @@ feed' !ss p l = let
             case lo HM.!? x of
                 Just going -> do
                     writeTVar ss.liveObjects $ HM.delete x lo
-                    pure $ closeOut (x, going)
+                    pure $ closeOut x going
                 Nothing -> pure Nothing
 
         let newState = ss { lastWrittenTime = ss.now }
@@ -170,10 +165,10 @@ feed' !ss p l = let
                 let (newState, dl) = updateObject prev ss.now pid props
                 writeTVar ss.liveObjects $ HM.insert pid newState lo
                 pure dl
-            -- If we have a delta line...
+            -- If we have a delta line, write some stuff...
             case deltaLine of
                 Just dl -> pure ([writeTimestamp, Just dl], ss { lastWrittenTime = ss.now })
-                Nothing -> pure ([], ss) -- No writes, just the atomic update to liveObjects
+                Nothing -> pure ([], ss) -- Otherwise just update liveObjects
         RemLine pid -> axeIt pid
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
