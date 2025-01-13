@@ -34,6 +34,9 @@ main = do
     hSetNewlineMode stdout noNewlineTranslation
     hSetNewlineMode stderr noNewlineTranslation
 
+    -- lol latency
+    hSetBuffering stdout LineBuffering
+
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
             progDesc "Replays ACMI files at the rate they were recorded"
