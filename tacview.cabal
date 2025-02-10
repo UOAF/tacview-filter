@@ -87,8 +87,7 @@ executable tacview-filter
 
 executable tacview-replay
     import: exeopts
-    hs-source-dirs: replay
-    main-is: Main.hs
+    main-is: Replay.hs
     build-depends: base,
                    channel,
                    clock,
@@ -99,8 +98,7 @@ executable tacview-replay
 
 executable tacview-server
     import: exeopts
-    hs-source-dirs: server
-    main-is: Main.hs
+    main-is: Server.hs
     build-depends: base,
                    channel,
                    tacview,
