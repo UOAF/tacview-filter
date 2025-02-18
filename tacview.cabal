@@ -112,6 +112,20 @@ executable tacview-server
                    unordered-containers,
                    vector
 
+executable tacview-stats
+    import: exeopts
+    main-is: Stats.hs
+    build-depends: base,
+                   channel,
+                   tacview,
+                   ansi-terminal,
+                   async,
+                   clock,
+                   text,
+                   optparse-applicative,
+                   stm,
+                   unordered-containers,
+
 executable test-client
     import: exeopts
     hs-source-dirs: client
