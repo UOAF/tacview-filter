@@ -5,13 +5,20 @@ import Control.Concurrent.Async
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
+import Control.Exception
 import Data.Function (fix)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.IORef
+import Data.List (sortOn)
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as M
+import Data.Maybe
+import Data.Ord (Down(..))
 import Data.Tacview
 import Data.Tacview.Source qualified as Tacview
 import Data.Text (Text)
+import Data.Text qualified as T
 import Numeric
 import Options.Applicative
 import System.Clock.Seconds
@@ -57,42 +64,72 @@ run Args{..} = do
     let dt = end - start
         dts = showFFloat (Just 2) (realToFrac dt :: Double) ""
     hPutStrLn stderr $ "\nin " <> dts <> " seconds"
-    hPutStrLn stderr $ "read " <> show stats.currentTime <> " seconds"
+    putStrLn "Update rates by type in Hz:"
+    M.foldMapWithKey (\k v -> putStrLn $ showDeltaStats k v) stats.deltaStats
+    putStrLn ""
+    printCounts stats.counts
 
 -- Append for each dt between objects - i.e., when `liveObjects !? o` is `Just prev`.
-data TypeStats = TypeStats {
+data DeltaStats = DeltaStats {
     minDelta :: Double,
     maxDelta :: Double,
     totalDelta :: Double, -- cumulative delta, divided by...
-    numDeltas :: Integer  -- ...to get the average
+    numDeltas :: Int -- ...to get the average
 }
 
-initStats :: Double -> TypeStats
-initStats dt = TypeStats{..} where
+initStats :: Double -> DeltaStats
+initStats dt = assert (dt >= 0) DeltaStats{..} where
     minDelta = dt
     maxDelta = dt
     totalDelta = dt
     numDeltas = 1
 
-appendDelta :: TypeStats -> Double -> TypeStats
-appendDelta p dt = TypeStats{..} where
+appendDelta :: Double -> DeltaStats -> DeltaStats
+appendDelta dt p = assert (dt >= 0) DeltaStats{..} where
     minDelta = min p.minDelta dt
     maxDelta = max p.maxDelta dt
     totalDelta = p.totalDelta + dt
     numDeltas = p.numDeltas + 1
 
-newtype ObjectState = ObjectState {
-    lastSeen :: Double
+showDeltaStats :: Text -> DeltaStats -> String
+showDeltaStats t s = mconcat [
+    T.unpack t,
+    ": mean ",
+    showHz (s.totalDelta / fromIntegral s.numDeltas),
+    ", min ",
+    showHz s.maxDelta, -- NB: we're taking the inverse below to get frequency from period.
+    ", max ",
+    showHz s.minDelta
+    ] where
+    showHz :: Double -> String
+    showHz 0 = "∞"
+    showHz d = showFFloat (Just 3) (1 / d) ""
+
+printCounts :: HashMap Text Int -> IO ()
+printCounts cs = do
+    let cs' = HM.toList cs
+        total = sum $ fmap snd cs'
+        scs = sortOn (\p -> Down $ snd p) cs'
+    putStrLn $ "Counts (" <> show total <> " lines total):"
+    let percentage :: Int -> Int
+        percentage v = round $ fromIntegral v / (fromIntegral total :: Double) * 100
+        line (k, v) = show (percentage v) <> "% " <> T.unpack k <> " (" <> show v <> " lines)"
+    mapM_ putStrLn $ fmap line scs
+
+data ObjectState = ObjectState {
+    lastSeen :: Double,
+    tacType :: Maybe Text
 }
 
 data StatState = StatState {
     currentTime :: Double,
     liveObjects :: HashMap TacId ObjectState,
-    typeStats :: HashMap Text TypeStats
+    deltaStats :: Map Text DeltaStats,
+    counts :: HashMap Text Int
 }
 
 startingState :: StatState
-startingState = StatState 0.0 mempty mempty
+startingState = StatState 0.0 mempty mempty mempty
 
 runStats :: StatState -> Channel Text -> IO StatState
 runStats !s lc = atomically (readChannel lc) >>= \case
@@ -102,12 +139,47 @@ runStats !s lc = atomically (readChannel lc) >>= \case
 update :: StatState -> Text -> StatState
 update s l = case parseLine l of
     TimeLine t -> s {currentTime = t}
-    PropLine tid _props -> s { liveObjects = added } where
-        added = HM.insert tid nos s.liveObjects
-        nos = ObjectState { lastSeen = s.currentTime }
+    PropLine tid props -> newState where
+        prev = s.liveObjects HM.!? tid
+        newObj = updateObjectState s.currentTime props prev
+        newObjs = HM.insert tid newObj s.liveObjects
+        newType = typeOf newObj
+        od = objectDelta prev s.currentTime
+        newStats = updateTypeStats od newType s.deltaStats
+        newCounts = HM.insertWith (+) newType 1 s.counts
+        newState = s {
+            liveObjects = newObjs,
+            deltaStats = newStats,
+            counts = newCounts
+        }
     RemLine tid -> s { liveObjects = axed} where
         axed = HM.delete tid s.liveObjects
     _ -> s
+
+unprop :: Property -> Text
+unprop (Property p) = p
+unprop (Position _) = error "absurd: position as Type"
+
+updateObjectState :: Double -> Properties -> (Maybe ObjectState) -> ObjectState
+updateObjectState now props Nothing = ObjectState{..} where
+    lastSeen = now
+    tacType = unprop <$> props HM.!? "Type"
+updateObjectState now props (Just prev) = ObjectState{..} where
+    lastSeen = now
+    tacType = prev.tacType <|> (unprop <$> props HM.!? "Type")
+
+-- A delta time iff this object is already alive
+objectDelta :: Maybe ObjectState -> Double -> Maybe Double
+objectDelta prev now = fmap (\o -> now - o.lastSeen) prev
+
+typeOf :: ObjectState -> Text
+typeOf os = fromMaybe "Unknown" os.tacType
+
+updateTypeStats :: (Maybe Double) -> Text -> Map Text DeltaStats -> Map Text DeltaStats
+updateTypeStats Nothing _ prev = prev -- Don't update if this is the 1st time seeing the object.
+updateTypeStats (Just dt) objType prev = M.insertWith app objType first prev where
+    app _new old = appendDelta dt old
+    first = initStats dt
 
 progress :: IORef Int -> IO ()
 progress i = progress' i 0

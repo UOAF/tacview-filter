@@ -120,6 +120,7 @@ executable tacview-stats
                    tacview,
                    ansi-terminal,
                    async,
+                   containers,
                    clock,
                    text,
                    optparse-applicative,
