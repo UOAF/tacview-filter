@@ -4,40 +4,49 @@ module Data.Tacview.MinId (
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HM
+import Data.HashTable.IO qualified as HM
+import Data.IORef
 import Data.Set qualified as S
 import Data.Maybe
 import Data.Tacview
 
+type IdTable = HM.BasicHashTable TacId TacId
+
 data MinIdState = MinIdState {
-    idMap :: !(HashMap TacId TacId),
-    nextId :: !TacId
+    idMap :: !IdTable,
+    nextId :: !(IORef TacId)
 }
 
 minId :: Channel ParsedLine -> Channel ParsedLine -> IO ()
-minId source sink = minId' (MinIdState mempty 1) source sink
+minId source sink = do
+    t <- HM.new
+    i <- newIORef 1
+    minId' (MinIdState t i) source sink
 
 minId' :: MinIdState -> Channel ParsedLine -> Channel ParsedLine -> IO ()
 minId' !state source sink = atomically (readChannel source) >>= \case
     Just l -> do
-        let (l', next) = mapLine state l
+        l' <- mapLine state l
         evalWriteChannel sink l'
-        minId' next source sink
+        minId' state source sink
     Nothing -> pure ()
 
-mapLine :: MinIdState -> ParsedLine -> (ParsedLine, MinIdState)
-mapLine state (PropLine i p) = case state.idMap HM.!? i of
-    Just m -> (PropLine m p, state)
-    Nothing -> (PropLine m p, newState) where
-        m = state.nextId
-        newState = state { idMap = HM.insert i m state.idMap, nextId = state.nextId + 1 }
-mapLine state l@(RemLine i) = case state.idMap HM.!? i of
-    Just m -> (RemLine m, state { idMap = HM.delete i state.idMap })
-    Nothing -> (l, state) -- Weird, but maybe a bug in the source file.
-mapLine state (EventLine t is p) = (EventLine t mis p, state) where
-    mis = S.map mapId is
-    mapId :: TacId -> TacId
-    mapId i = fromMaybe i $ state.idMap HM.!? i -- Ditto
-mapLine s l = (l, s)
-
+mapLine :: MinIdState -> ParsedLine -> IO ParsedLine
+mapLine state (PropLine i p) = HM.lookup state.idMap i >>= \case
+    Just m -> pure $ PropLine m p
+    Nothing -> do
+        m <- readIORef state.nextId
+        modifyIORef' state.nextId (+ 1)
+        HM.insert state.idMap i m
+        pure $ PropLine m p
+mapLine state l@(RemLine i) = HM.lookup state.idMap i >>= \case
+    Just m -> do
+        HM.delete state.idMap i
+        pure $ RemLine m
+    Nothing -> pure l -- Weird, but maybe a bug in the source file.
+mapLine state (EventLine t is p) = do
+    let mapId :: TacId -> IO TacId
+        mapId i = fromMaybe i <$> HM.lookup state.idMap i -- Ditto
+    mis <- mapM mapId $ S.toList is
+    pure $ EventLine t (S.fromList mis) p
+mapLine _ l = pure l

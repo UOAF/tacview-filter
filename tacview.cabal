@@ -67,6 +67,7 @@ library
                    conduit,
                    containers,
                    deepseq,
+                   hashtables,
                    stm,
                    text,
                    unordered-containers,
@@ -81,6 +82,7 @@ executable tacview-filter
     build-depends: base,
                    channel,
                    containers,
+                   hashtables,
                    tacview,
                    ansi-terminal,
                    async,
@@ -88,7 +90,6 @@ executable tacview-filter
                    optparse-applicative,
                    stm,
                    text,
-                   unordered-containers,
 
 executable tacview-replay
     import: exeopts

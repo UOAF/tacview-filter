@@ -66,7 +66,7 @@ runFilter Args{..} = do
     let ignore sink = pipeline
             src
             (\source -> filterLines Ignores.startState source sink)
-        thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
+        thenDeltas sink = pipeline ignore (\source -> deltas source sink)
         thenMinId sink = pipeline thenDeltas (\source -> minId source sink)
         filterPipeline = pipeline thenMinId dst
         prog = if noProgress
