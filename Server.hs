@@ -31,7 +31,6 @@ import Options.Applicative
 import System.IO
 import System.IO.Unsafe
 import System.Timeout
-import Text.Printf
 
 data Args = Args {
     zipInput :: Maybe FilePath,
@@ -111,32 +110,35 @@ slog s = withMVar stderrLock . const $ do
 -- | Write out to each client.
 --
 -- TODO: Use tryWriteChannel and drop guys who can't keep up.
-writeToClients :: ServerState -> [Text] -> IO ()
-writeToClients ss ts = do
+writeToClients :: ServerState -> [ParsedLine] -> IO ()
+writeToClients ss pl = do
+    let ts = showLine <$> pl
     chans <- M.elems <$> readTVarIO ss.clients
     forM_ chans $ \c -> mapM_ (evalWriteChannel c) ts
 
-feed :: ServerState -> Channel (ParsedLine, Text) -> IO ()
+feed :: ServerState -> Channel ParsedLine -> IO ()
 feed ss source = atomically (readChannel source) >>= \case
      Nothing -> do
         -- For each client, close out each remaining object.
         liveObjects <- readTVarIO ss.liveObjects
-        let allClosed = catMaybes $ uncurry closeOut <$> HM.toList liveObjects
+        let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
+            closeLine i s = PropLine i <$> closeOut s
+            allClosed = catMaybes $ uncurry closeLine <$> HM.toList liveObjects
         writeToClients ss allClosed
-     Just (p, l) -> do
-        (newLines, newState) <- feed' ss p l
+     Just p -> do
+        (newLines, newState) <- feed' ss p
         writeToClients newState $ catMaybes newLines
         feed newState source
 
-feed' :: ServerState -> ParsedLine -> Text -> IO ([Maybe Text], ServerState)
-feed' !ss p l = let
+feed' :: ServerState -> ParsedLine -> IO ([Maybe ParsedLine], ServerState)
+feed' !ss p = let
     -- A timestamp, when we need a new one.
-    writeTimestamp :: Maybe Text
+    writeTimestamp :: Maybe ParsedLine
     writeTimestamp = if (ss.now /= ss.lastWrittenTime)
-        then Just $ "#" <> (shaveZeroes . T.pack $ printf "%f" ss.now)
+        then Just $ TimeLine ss.now
         else Nothing
     -- Helper to remove the object from the set we're tracking, taking the ID
-    axeIt :: TacId -> IO ([Maybe Text], ServerState)
+    axeIt :: TacId -> IO ([Maybe ParsedLine], ServerState)
     axeIt x = do
         -- We might not have written in in a bit,
         -- so make sure its last known state goes out.
@@ -145,16 +147,16 @@ feed' !ss p l = let
             case lo HM.!? x of
                 Just going -> do
                     writeTVar ss.liveObjects $ HM.delete x lo
-                    pure $ closeOut x going
+                    pure $ closeOut going
                 Nothing -> pure Nothing
 
         let newState = ss { lastWrittenTime = ss.now }
-        pure ([co, writeTimestamp, Just l], newState)
+        pure ([PropLine x <$> co, writeTimestamp, Just p], newState)
     -- Helper to pass the line through without doing anything, taking the time.
-    passthrough :: IO ([Maybe Text], ServerState)
+    passthrough :: IO ([Maybe ParsedLine], ServerState)
     passthrough = let
         newState = ss { lastWrittenTime = ss.now }
-        in pure ([writeTimestamp, Just l], newState)
+        in pure ([writeTimestamp, Just p], newState)
     in case p of
         PropLine pid props -> do
             -- Is it anything we're tracking?
@@ -162,24 +164,27 @@ feed' !ss p l = let
                 lo <- readTVar ss.liveObjects
                 let prev = lo HM.!? pid
                 -- Update the properties we're tracking.
-                let (newState, dl) = updateObject prev ss.now pid props
+                let (newState, dl) = updateObject prev ss.now props
                 writeTVar ss.liveObjects $ HM.insert pid newState lo
                 pure dl
             -- If we have a delta line, write some stuff...
             case deltaLine of
-                Just dl -> pure ([writeTimestamp, Just dl], ss { lastWrittenTime = ss.now })
+                Just dl -> pure (
+                    [writeTimestamp, Just $ PropLine pid dl],
+                    ss { lastWrittenTime = ss.now }
+                    )
                 Nothing -> pure ([], ss) -- Otherwise just update liveObjects
         RemLine pid -> axeIt pid
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
-        EventLine es -> if T.isInfixOf "Event=LeftArea" l
+        EventLine es l -> if T.isInfixOf "Event=LeftArea" l
             then assert (HS.size es == 1) $ do
                 axeIt (head $ HS.toList es)
             else passthrough
         -- If it's a #<time> line, note the new time but don't write.
         TimeLine t -> pure ([], ss { now = t })
         -- Assume some global event or something that every connecting client should get.
-        GlobalLine -> do
+        GlobalLine l -> do
             atomically $ modifyTVar' ss.globalLines $ flip V.snoc l
             passthrough
 
@@ -214,8 +219,8 @@ serve ss serverName sock who = do
     bracket register deregister $ \(gl, lo) -> do
         -- Send the current state of the world at the time of connection.
         let glLines = V.toList gl
-            loLines = fmap (\(k, v) -> buildLine k v.osCurrent) $ HM.toList lo
-        NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> loLines
+            loLines = fmap (\(k, v) -> PropLine k v.osCurrent) $ HM.toList lo
+        NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> fmap showLine loLines
 
         -- TODO: Drain channel and send as a chunk.
         fix $ \loop -> atomically (readChannel chan) >>= \case

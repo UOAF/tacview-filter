@@ -11,9 +11,7 @@ import Data.HashSet qualified as HS
 import Data.Maybe
 import Data.Tacview
 import Data.Tacview.Delta
-import Data.Text (Text)
 import Data.Text qualified as T
-import Text.Printf
 
 data DeltaFilterState = DeltaFilterState {
     liveObjects :: HashMap TacId ObjectState,
@@ -24,72 +22,76 @@ data DeltaFilterState = DeltaFilterState {
 startState :: DeltaFilterState
 startState = DeltaFilterState HM.empty 0.0 0.0
 
-writeOut :: Channel Text -> [Text] -> IO ()
+writeOut :: Channel ParsedLine -> [ParsedLine] -> IO ()
 writeOut c ts = mapM_ (evalWriteChannel c) ts
 
 deltas
     :: DeltaFilterState
-    -> Channel (ParsedLine, Text)
-    -> Channel Text -> IO ()
+    -> Channel ParsedLine
+    -> Channel ParsedLine -> IO ()
 deltas !dfs source sink = atomically (readChannel source) >>= \case
     -- Delta-encode all remaining objects on the way out
     -- so we don't drop any last-second changes.
     Nothing -> do
-        let allClosed = catMaybes $ uncurry closeOut <$> HM.toList dfs.liveObjects
+        let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
+            closeLine i s = PropLine i <$> closeOut s
+            allClosed = catMaybes $ uncurry closeLine <$> HM.toList dfs.liveObjects
         writeOut sink allClosed
-    Just (p, l) -> do
-        let (newLines, newState) = deltas' dfs p l
+    Just p -> do
+        let (newLines, newState) = deltas' dfs p
         writeOut sink $ catMaybes newLines
         deltas newState source sink
 
 deltas'
     :: DeltaFilterState
     -> ParsedLine
-    -> Text
-    -> ([Maybe Text], DeltaFilterState)
-deltas' !dfs p l = let
+    -> ([Maybe ParsedLine], DeltaFilterState)
+deltas' !dfs p = let
     -- Helper to write a timestamp when we need a new one.
-    writeTimestamp :: Maybe Text
+    writeTimestamp :: Maybe ParsedLine
     writeTimestamp = if (dfs.now /= dfs.lastWrittenTime)
-        then Just $ "#" <> (shaveZeroes . T.pack $ printf "%f" dfs.now)
+        then Just $ TimeLine dfs.now
         else Nothing
     -- Helper to remove the object from the set we're tracking, taking the ID
-    axeIt :: TacId -> ([Maybe Text], DeltaFilterState)
+    axeIt :: TacId -> ([Maybe ParsedLine], DeltaFilterState)
     axeIt x = let
         -- We might not have written in in a bit,
         -- so make sure its last known state goes out.
-        co :: Maybe Text
-        co = dfs.liveObjects HM.!? x >>= closeOut x
+        co :: Maybe Properties
+        co = dfs.liveObjects HM.!? x >>= closeOut
         newState = dfs {
             lastWrittenTime = dfs.now,
             liveObjects = HM.delete x dfs.liveObjects
         }
-        in ([co, writeTimestamp, Just l], newState)
+        in ([PropLine x <$> co, writeTimestamp, Just p], newState)
     -- Helper to pass the line through without doing anything, taking the time.
-    passthrough :: ([Maybe Text], DeltaFilterState)
+    passthrough :: ([Maybe ParsedLine], DeltaFilterState)
     passthrough = let
         newState = dfs { lastWrittenTime = dfs.now }
-        in ([writeTimestamp, Just l], newState)
+        in ([writeTimestamp, Just p], newState)
     in case p of
         PropLine pid props -> let
             -- Is it anything we're tracking?
             prev = dfs.liveObjects HM.!? pid
             -- Update the properties we're tracking.
-            (newObjState, deltaLine) = updateObject prev dfs.now pid props
+            (newObjState, deltaLine) = updateObject prev dfs.now props
             newObjs = HM.insert pid newObjState dfs.liveObjects
             newState = dfs { liveObjects = newObjs }
             -- If we have a delta line, write some stuff...
             in case deltaLine of
-                Just dl -> ([writeTimestamp, Just dl], newState { lastWrittenTime = dfs.now })
+                Just dl -> (
+                    [writeTimestamp, Just $ PropLine pid dl],
+                    newState { lastWrittenTime = dfs.now }
+                    )
                 Nothing -> ([], newState) -- Otherwise just update liveObjects
         RemLine pid -> axeIt pid
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
-        EventLine es -> if T.isInfixOf "Event=LeftArea" l
+        EventLine es l -> if T.isInfixOf "Event=LeftArea" l
             then assert (HS.size es == 1) $ do
                 axeIt (head $ HS.toList es)
             else passthrough
         -- If it's a #<time> line, note the new time but dont write.
         TimeLine t -> ([], dfs { now = t })
         -- We don't do anything with global config lines.
-        GlobalLine -> passthrough
+        GlobalLine _ -> passthrough

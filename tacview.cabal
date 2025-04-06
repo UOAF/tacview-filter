@@ -28,6 +28,8 @@ common shared
                  -fno-ignore-asserts
     default-language: Haskell2010
     default-extensions: BangPatterns,
+                        DeriveAnyClass,
+                        DeriveGeneric,
                         DerivingStrategies,
                         ImportQualifiedPost,
                         LambdaCase,
@@ -63,6 +65,7 @@ library
                    bytestring,
                    conduit,
                    containers,
+                   deepseq,
                    stm,
                    text,
                    unordered-containers,

@@ -2,6 +2,7 @@
 
 module Data.Tacview where
 
+import Control.DeepSeq
 import Data.Char (isDigit)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -58,10 +59,18 @@ data ParsedLine =
     RemLine TacId |
     -- | An event line: @0,Event=...|id1|id2|...@
     --   This can have multiple IDs!
-    EventLine (HashSet TacId) |
+    EventLine (HashSet TacId) Text |
     -- | Global config or something else we don't care to parse
-    GlobalLine
+    GlobalLine Text
     deriving stock (Show, Generic)
+    deriving anyclass (NFData)
+
+showLine :: ParsedLine -> Text
+showLine (TimeLine t) = "#" <> (shaveZeroes . T.pack $ printf "%f" t)
+showLine (PropLine i p) = (T.pack . printf "%x," $ i) <> showProperties p
+showLine (RemLine i) = T.pack $ printf "-%x" i
+showLine (EventLine _is l) = l
+showLine (GlobalLine l) = l
 
 -- | Parse the `LineIds` of the line.
 --   (or `Nothing` if it's not a line that affects filtering)
@@ -71,15 +80,17 @@ parseLine l
     | T.isPrefixOf "0,Event=" l = let
         toks = tail $ T.splitOn "|" l
         ids = mapMaybe maybeId toks
-        in EventLine (HS.fromList ids)
+        in EventLine (HS.fromList ids) l
     | T.isPrefixOf "-" l = RemLine $ parseId (T.tail l)
-    | T.isPrefixOf "0," l = GlobalLine -- Don't try to parse global config.
+    | T.isPrefixOf "0," l = GlobalLine l -- Don't try to parse global config.
     | otherwise = case maybeId l of
         Just i -> PropLine i (lineProperties l)
-        Nothing -> GlobalLine
+        Nothing -> GlobalLine l
 
 -- | Positions are a special case, where each coordinate can be delta-encoded.
-data Property = Property Text | Position (Vector Text) deriving stock (Show, Eq)
+data Property = Property Text | Position (Vector Text)
+    deriving stock (Show, Eq, Generic)
+    deriving anyclass (NFData)
 
 showProperty :: Property -> Text
 showProperty (Property t) = shaveZeroes t
@@ -167,14 +178,10 @@ deltaCoord old new = if old == new then "" else new
 
 -- | Delta-encode an object, generating a line with only properties that changed.
 -- Returns Just the line, or Nothing if there's no changes.
-deltaEncode :: TacId -> Properties -> Properties -> Maybe Text
-deltaEncode i old new = let
+deltaEncode :: Properties -> Properties -> Maybe Properties
+deltaEncode old new = let
     deltaProps = deltaProperties old new
     in if HM.null deltaProps
         -- Don't write if the delta-encoded version is empty (nothing changed).
         then Nothing
-        else Just $ buildLine i deltaProps
-
--- | Build a line from its ID and property map.
-buildLine :: TacId -> Properties -> Text
-buildLine i props = (T.pack . printf "%x," $ i) <> showProperties props
+        else Just deltaProps

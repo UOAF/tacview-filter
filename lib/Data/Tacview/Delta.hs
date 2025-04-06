@@ -24,8 +24,8 @@ data ObjectState = ObjectState {
 -- | Given a new property line for the object,
 -- compute the next state and a delta-encoded line to print.
 -- The ID is provided only for printing purposes
-updateObject :: Maybe ObjectState -> Double -> TacId -> Properties -> (ObjectState, Maybe Text)
-updateObject maybePrevious now i props = case maybePrevious of
+updateObject :: Maybe ObjectState -> Double -> Properties -> (ObjectState, Maybe Properties)
+updateObject maybePrevious now props = case maybePrevious of
     Nothing -> let
         -- There was no previous record of this object.
         -- Everything becomes the property set we're given,
@@ -37,7 +37,7 @@ updateObject maybePrevious now i props = case maybePrevious of
             -- which "Type" had better be.
             showProperty <$> props HM.!? "Type"
         osNextWrite = now + osRate
-        in (ObjectState{..}, Just $ buildLine i props)
+        in (ObjectState{..}, Just props)
     Just prev -> let
         -- We have a previous record of this object.
         -- Merge its properties into the current set,
@@ -52,12 +52,12 @@ updateObject maybePrevious now i props = case maybePrevious of
                     osNextWrite = now + prev.osRate
                 }
                 -- ...but be sure to delta lastWritten as it just was
-                in (next, deltaEncode i prev.osLastWritten merged)
+                in (next, deltaEncode prev.osLastWritten merged)
             else (prev { osCurrent = merged }, Nothing)
 
 -- | Make sure an object's last known state goes out before we remove it, etc.
-closeOut :: TacId -> ObjectState -> Maybe Text
-closeOut i o = deltaEncode i o.osLastWritten o.osCurrent
+closeOut :: ObjectState -> Maybe Properties
+closeOut o = deltaEncode o.osLastWritten o.osCurrent
 
 -- | Update rates of various object types, or 1 Hz by default.
 -- Uses recommendations from https://www.tacview.net/documentation/realtime/en/

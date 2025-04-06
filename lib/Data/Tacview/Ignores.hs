@@ -89,7 +89,7 @@ newtype FilteredLines = FilteredLines Int
 filterLines
     :: IgnoreFilterState
     -> Channel Text
-    -> Channel (ParsedLine, Text)
+    -> Channel ParsedLine
     -> IO FilteredLines
 filterLines !fs source sink = atomically (readChannel source) >>= \case
     Nothing -> pure $ FilteredLines fs.ifsLinesDropped
@@ -107,12 +107,11 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
                 p' = unlessMaybe (HS.member r fs.ifsIgnored) p
                 fs' = removeId r fs
             -- Skip an event if it's ignoreable.
-            go (EventLine es) = (p', fs) where
+            go (EventLine es _) = (p', fs) where
                 p' = unlessMaybe (ignoreableEvent es fs) p
             -- Pass the rest, no change to state.
             go _ = (Just p, fs)
-            pt = (,l) <$> filtered
-        mapM_ (atomically . writeChannel sink) pt
+        mapM_ (atomically . writeChannel sink) filtered
         -- Add one if we filtered a line out.
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
             nextState' = nextState { ifsLinesDropped = nextCount }

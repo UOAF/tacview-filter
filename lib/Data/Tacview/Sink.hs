@@ -9,8 +9,7 @@ import Data.ByteString qualified as BS
 import Data.IORef
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as M
-import Data.Tacview (zipExt, txtExt)
-import Data.Text (Text)
+import Data.Tacview (ParsedLine, showLine, zipExt, txtExt)
 import Data.Text qualified as T
 import System.IO
 
@@ -18,13 +17,14 @@ import System.IO
 sink
     :: Maybe FilePath
     -> IORef Int
-    -> Channel Text
+    -> Channel ParsedLine
     -> IO ()
 sink mfp iow source = do
     sinker <- sinkStream mfp
     let srcC :: ConduitT () BS.ByteString (ResourceT IO) ()
         srcC = repeatMC (liftIO $ atomically (readChannel source))
             .| mapWhileC id
+            .| mapC showLine
             .| iterMC (const . liftIO $ atomicModifyIORef' iow $ \p -> (p + 1, ()))
             .| unlinesC
             .| encodeUtf8C
