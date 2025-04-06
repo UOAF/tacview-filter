@@ -3,11 +3,13 @@
 module Data.Tacview where
 
 import Control.DeepSeq
+import Control.Monad
 import Data.Char (isDigit)
+import Data.Functor.Identity
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.HashSet (HashSet)
-import Data.HashSet qualified as HS
+import Data.Set (Set)
+import Data.Set qualified as S
 import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -15,6 +17,7 @@ import Data.Text.Read qualified as T
 import Data.Word
 import Data.Vector (Vector)
 import Data.Vector qualified as V
+import Numeric
 import Text.Printf
 
 import GHC.Generics
@@ -59,7 +62,7 @@ data ParsedLine =
     RemLine TacId |
     -- | An event line: @0,Event=...|id1|id2|...@
     --   This can have multiple IDs!
-    EventLine (HashSet TacId) Text |
+    EventLine Text (Set TacId) Text |
     -- | Global config or something else we don't care to parse
     OtherLine Text
     deriving stock (Show, Generic)
@@ -69,7 +72,14 @@ showLine :: ParsedLine -> Text
 showLine (TimeLine t) = "#" <> (shaveZeroes . T.pack $ printf "%f" t)
 showLine (PropLine i p) = (T.pack . printf "%x," $ i) <> showProperties p
 showLine (RemLine i) = T.pack $ printf "-%x" i
-showLine (EventLine _is l) = l
+showLine (EventLine t is p) = mconcat [
+    "0,Event=",
+    t,
+    "|",
+    T.intercalate "|" (T.pack . flip showHex "" <$> S.toList is),
+    "|",
+    p
+    ]
 showLine (OtherLine l) = l
 
 -- | Parse the `LineIds` of the line.
@@ -77,10 +87,16 @@ showLine (OtherLine l) = l
 parseLine :: Text -> ParsedLine
 parseLine l
     | T.isPrefixOf "#" l = TimeLine $ parseTime l
-    | T.isPrefixOf "0,Event=" l = let
-        toks = tail $ T.splitOn "|" l
-        ids = mapMaybe maybeId toks
-        in EventLine (HS.fromList ids) l
+    | T.isPrefixOf "0,Event=" l = runIdentity $ do
+        let rest = T.drop (T.length "0,Event=") l
+            toks = T.splitOn "|" rest
+            eventType = head toks
+        when (eventType == "Timeout") $ error "Timeout events are unsupported"
+        let tms = fmap (\t -> (t, maybeId t)) $ tail toks
+            (ids, nonIds) = span (isJust . snd) tms
+        unless (null $ filter (isJust . snd ) nonIds) $ error $ "Strange event: " <> T.unpack l
+        let post = T.intercalate "|" $ fmap fst nonIds
+        pure $ EventLine eventType (S.fromList . catMaybes $ snd <$> ids) post
     | T.isPrefixOf "-" l = RemLine $ parseId (T.tail l)
     | T.isPrefixOf "0," l = OtherLine l -- Don't try to parse global config.
     | otherwise = case maybeId l of

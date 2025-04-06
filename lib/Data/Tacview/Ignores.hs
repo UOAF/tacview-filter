@@ -7,6 +7,7 @@ import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
+import Data.Set (Set)
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe
 import Data.Tacview
@@ -77,7 +78,7 @@ removeId i fs = fs { ifsIgnored = newIg, ifsEventsIgnored = newEvIg } where
     newEvIg = HS.delete i fs.ifsEventsIgnored
 
 -- | We can ignore an event if all of its IDs are in the "ignored" or "events ignored" sets
-ignoreableEvent :: HashSet TacId -> IgnoreFilterState -> Bool
+ignoreableEvent :: Set TacId -> IgnoreFilterState -> Bool
 ignoreableEvent es fs = not (HS.null toIgnore) && all (`HS.member` toIgnore) es
     where toIgnore = HS.union fs.ifsIgnored fs.ifsEventsIgnored
 
@@ -107,8 +108,8 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
                 p' = unlessMaybe (HS.member r fs.ifsIgnored) p
                 fs' = removeId r fs
             -- Skip an event if it's ignoreable.
-            go (EventLine es _) = (p', fs) where
-                p' = unlessMaybe (ignoreableEvent es fs) p
+            go (EventLine _ is _) = (p', fs) where
+                p' = unlessMaybe (ignoreableEvent is fs) p
             -- Pass the rest, no change to state.
             go _ = (Just p, fs)
         mapM_ (atomically . writeChannel sink) filtered

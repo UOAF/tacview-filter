@@ -11,7 +11,7 @@ import Data.Function (fix)
 import Data.IORef
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.HashSet qualified as HS
+import Data.Set qualified as S
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe
@@ -177,9 +177,9 @@ feed' !ss p = let
         RemLine pid -> axeIt pid
         -- If it's a "left the area" event, assume its deletion will
         -- come next. We want to write out any last properties before going.
-        EventLine es l -> if T.isInfixOf "Event=LeftArea" l
-            then assert (HS.size es == 1) $ do
-                axeIt (head $ HS.toList es)
+        EventLine t es _ -> if t == "LeftArea"
+            then assert (S.size es == 1) $ do
+                axeIt (head $ S.toList es)
             else passthrough
         -- If it's a #<time> line, note the new time but don't write.
         TimeLine t -> pure ([], ss { now = t })

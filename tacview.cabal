@@ -79,6 +79,7 @@ executable tacview-filter
     other-modules: Delta,
     build-depends: base,
                    channel,
+                   containers,
                    tacview,
                    ansi-terminal,
                    async,
