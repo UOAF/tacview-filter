@@ -61,7 +61,7 @@ data ParsedLine =
     --   This can have multiple IDs!
     EventLine (HashSet TacId) Text |
     -- | Global config or something else we don't care to parse
-    GlobalLine Text
+    OtherLine Text
     deriving stock (Show, Generic)
     deriving anyclass (NFData)
 
@@ -70,7 +70,7 @@ showLine (TimeLine t) = "#" <> (shaveZeroes . T.pack $ printf "%f" t)
 showLine (PropLine i p) = (T.pack . printf "%x," $ i) <> showProperties p
 showLine (RemLine i) = T.pack $ printf "-%x" i
 showLine (EventLine _is l) = l
-showLine (GlobalLine l) = l
+showLine (OtherLine l) = l
 
 -- | Parse the `LineIds` of the line.
 --   (or `Nothing` if it's not a line that affects filtering)
@@ -82,10 +82,10 @@ parseLine l
         ids = mapMaybe maybeId toks
         in EventLine (HS.fromList ids) l
     | T.isPrefixOf "-" l = RemLine $ parseId (T.tail l)
-    | T.isPrefixOf "0," l = GlobalLine l -- Don't try to parse global config.
+    | T.isPrefixOf "0," l = OtherLine l -- Don't try to parse global config.
     | otherwise = case maybeId l of
         Just i -> PropLine i (lineProperties l)
-        Nothing -> GlobalLine l
+        Nothing -> OtherLine l
 
 -- | Positions are a special case, where each coordinate can be delta-encoded.
 data Property = Property Text | Position (Vector Text)

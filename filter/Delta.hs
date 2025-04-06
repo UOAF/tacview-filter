@@ -94,4 +94,4 @@ deltas' !dfs p = let
         -- If it's a #<time> line, note the new time but dont write.
         TimeLine t -> ([], dfs { now = t })
         -- We don't do anything with global config lines.
-        GlobalLine _ -> passthrough
+        OtherLine _ -> passthrough

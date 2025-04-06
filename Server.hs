@@ -184,7 +184,7 @@ feed' !ss p = let
         -- If it's a #<time> line, note the new time but don't write.
         TimeLine t -> pure ([], ss { now = t })
         -- Assume some global event or something that every connecting client should get.
-        GlobalLine l -> do
+        OtherLine l -> do
             atomically $ modifyTVar' ss.globalLines $ flip V.snoc l
             passthrough
 
