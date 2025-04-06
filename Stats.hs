@@ -109,7 +109,7 @@ printCounts :: HashMap Text Int -> IO ()
 printCounts cs = do
     let cs' = HM.toList cs
         total = sum $ fmap snd cs'
-        scs = sortOn (\p -> Down $ snd p) cs'
+        scs = sortOn (Down . snd) cs'
     putStrLn $ "Counts (" <> show total <> " lines total):"
     let percentage :: Int -> Int
         percentage v = round $ fromIntegral v / (fromIntegral total :: Double) * 100
@@ -160,7 +160,7 @@ unprop :: Property -> Text
 unprop (Property p) = p
 unprop (Position _) = error "absurd: position as Type"
 
-updateObjectState :: Double -> Properties -> (Maybe ObjectState) -> ObjectState
+updateObjectState :: Double -> Properties -> Maybe ObjectState -> ObjectState
 updateObjectState now props Nothing = ObjectState{..} where
     lastSeen = now
     tacType = unprop <$> props HM.!? "Type"
@@ -175,10 +175,10 @@ objectDelta prev now = fmap (\o -> now - o.lastSeen) prev
 typeOf :: ObjectState -> Text
 typeOf os = fromMaybe "Unknown" os.tacType
 
-updateTypeStats :: (Maybe Double) -> Text -> Map Text DeltaStats -> Map Text DeltaStats
+updateTypeStats :: Maybe Double -> Text -> Map Text DeltaStats -> Map Text DeltaStats
 updateTypeStats Nothing _ prev = prev -- Don't update if this is the 1st time seeing the object.
 updateTypeStats (Just dt) objType prev = M.insertWith app objType first prev where
-    app _new old = appendDelta dt old
+    app _new = appendDelta dt
     first = initStats dt
 
 progress :: IORef Int -> IO ()

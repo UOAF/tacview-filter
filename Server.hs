@@ -123,7 +123,7 @@ feed ss source = atomically (readChannel source) >>= \case
         liveObjects <- readTVarIO ss.liveObjects
         let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
             closeLine i s = PropLine i <$> closeOut s
-            allClosed = catMaybes $ uncurry closeLine <$> HM.toList liveObjects
+            allClosed = mapMaybe (uncurry closeLine) (HM.toList liveObjects)
         writeToClients ss allClosed
      Just p -> do
         (newLines, newState) <- feed' ss p
@@ -134,7 +134,7 @@ feed' :: ServerState -> ParsedLine -> IO ([Maybe ParsedLine], ServerState)
 feed' !ss p = let
     -- A timestamp, when we need a new one.
     writeTimestamp :: Maybe ParsedLine
-    writeTimestamp = if (ss.now /= ss.lastWrittenTime)
+    writeTimestamp = if ss.now /= ss.lastWrittenTime
         then Just $ TimeLine ss.now
         else Nothing
     -- Helper to remove the object from the set we're tracking, taking the ID
@@ -219,7 +219,7 @@ serve ss serverName sock who = do
     bracket register deregister $ \(gl, lo) -> do
         -- Send the current state of the world at the time of connection.
         let glLines = V.toList gl
-            loLines = fmap (\(k, v) -> PropLine k v.osCurrent) $ HM.toList lo
+            loLines = (\(k, v) -> PropLine k v.osCurrent) <$> HM.toList lo
         NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> fmap showLine loLines
 
         -- TODO: Drain channel and send as a chunk.

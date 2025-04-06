@@ -92,11 +92,11 @@ parseLine l
             toks = T.splitOn "|" rest
             eventType = head toks
         when (eventType == "Timeout") $ error "Timeout events are unsupported"
-        let tms = fmap (\t -> (t, maybeId t)) $ tail toks
+        let tms = (\t -> (t, maybeId t)) <$> tail toks
             (ids, nonIds) = span (isJust . snd) tms
-        unless (null $ filter (isJust . snd ) nonIds) $ error $ "Strange event: " <> T.unpack l
+        when (any (isJust . snd) nonIds) $ error $ "Strange event: " <> T.unpack l
         let post = T.intercalate "|" $ fmap fst nonIds
-        pure $ EventLine eventType (S.fromList . catMaybes $ snd <$> ids) post
+        pure $ EventLine eventType (S.fromList $ mapMaybe snd ids) post
     | T.isPrefixOf "-" l = RemLine $ parseId (T.tail l)
     | T.isPrefixOf "0," l = OtherLine l -- Don't try to parse global config.
     | otherwise = case maybeId l of

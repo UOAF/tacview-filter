@@ -29,7 +29,7 @@ startState = do
     pure $ DeltaFilterState t n l
 
 writeOut :: Channel ParsedLine -> [ParsedLine] -> IO ()
-writeOut c ts = mapM_ (evalWriteChannel c) ts
+writeOut c = mapM_ (evalWriteChannel c)
 
 deltas :: Channel ParsedLine -> Channel ParsedLine -> IO ()
 deltas source sink = do
@@ -47,7 +47,7 @@ deltas' !dfs source sink = atomically (readChannel source) >>= \case
         let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
             closeLine i s = PropLine i <$> closeOut s
         los <- HM.toList dfs.liveObjects
-        let allClosed = catMaybes $ uncurry closeLine <$> los
+        let allClosed = mapMaybe (uncurry closeLine) los
         writeOut sink allClosed
     Just p -> do
         newLines <- processLine dfs p

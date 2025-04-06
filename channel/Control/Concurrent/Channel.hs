@@ -51,7 +51,7 @@ tryWriteChannel c !v = do
         then error "write to closed channel"
         else do
             wasFull <- isFullTBQueue c.q
-            unless (wasFull) $ writeTBQueue c.q v
+            unless wasFull $ writeTBQueue c.q v
             pure $ not wasFull
 
 writeChannel :: Channel a -> a -> STM ()

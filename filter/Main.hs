@@ -66,8 +66,8 @@ runFilter Args{..} = do
     let ignore sink = pipeline
             src
             (\source -> filterLines Ignores.startState source sink)
-        thenDeltas sink = pipeline ignore (\source -> deltas source sink)
-        thenMinId sink = pipeline thenDeltas (\source -> minId source sink)
+        thenDeltas sink = pipeline ignore (`deltas` sink)
+        thenMinId sink = pipeline thenDeltas (`minId` sink)
         filterPipeline = pipeline thenMinId dst
         prog = if noProgress
             then forever $ threadDelay maxBound
