@@ -57,6 +57,7 @@ library
     exposed-modules: Data.Tacview
                      Data.Tacview.Delta
                      Data.Tacview.Ignores
+                     Data.Tacview.MinId
                      Data.Tacview.Sink
                      Data.Tacview.Source
     hs-source-dirs: lib

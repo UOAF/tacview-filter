@@ -7,6 +7,7 @@ import Control.Monad
 import Data.Function (fix)
 import Data.IORef
 import Data.Tacview.Ignores as Ignores
+import Data.Tacview.MinId
 import Data.Tacview.Sink qualified as Tacview
 import Data.Tacview.Source qualified as Tacview
 import Data.Text qualified as T
@@ -66,7 +67,8 @@ runFilter Args{..} = do
             src
             (\source -> filterLines Ignores.startState source sink)
         thenDeltas sink = pipeline ignore (\source -> deltas Delta.startState source sink)
-        filterPipeline = pipeline thenDeltas dst
+        thenMinId sink = pipeline thenDeltas (\source -> minId source sink)
+        filterPipeline = pipeline thenMinId dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress linesRead linesWritten
@@ -74,7 +76,7 @@ runFilter Args{..} = do
     runnit <- race filterPipeline prog
 
     -- Gather up all our stats, placed in newtypes for easier readability here.
-    let ((((), FilteredLines f), ()), ()) = case runnit of
+    let (((((), FilteredLines f), ()), ()), ()) = case runnit of
             Left l -> l
             Right () -> error "absurd: progress should run forever"
 
