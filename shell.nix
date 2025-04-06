@@ -1,4 +1,4 @@
-let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/7a6dc9d12ff18c6d96e0f63a7ebf1610aa274d46.tar.gz";
+let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haskell.nix/archive/2dac115ec1ef9265aa608b226f3f4c96ce6a277c.tar.gz";
     haskellNix = import haskellSrc {};
     # Import nixpkgs and pass the haskell.nix provided nixpkgsArgs
     pkgs = import
@@ -24,9 +24,8 @@ in project.shellFor {
     exactDeps = true;
     tools = {
       cabal = "latest";
-      hlint = "latest";
-      # Currently torpedoed by some build error with ghcide on 9.8
-      # haskell-language-server = "2.6.0.0";
-      # haskell-language-server = "latest";
+      # not linking today
+      #hlint = "latest";
+      haskell-language-server = "latest";
     };
 }
