@@ -13,11 +13,11 @@ import Data.Tacview.Source qualified as Tacview
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 import GHC.Float
+import Numeric
 import Options.Applicative
 import System.Clock.Seconds
 import System.Console.ANSI
 import System.IO
-import Text.Printf
 
 import Delta
 
@@ -80,7 +80,7 @@ runFilter Args{..} = do
 
     end <- getTime Monotonic
     let dt = end - start
-        dts = printf "%.2f" (realToFrac dt :: Double)
+        dts = showFFloat (Just 2) (realToFrac dt :: Double) ""
     unless noProgress $ do
         -- Clear any progress bar
         hClearFromCursorToLineBeginning stderr
@@ -98,7 +98,13 @@ runFilter Args{..} = do
 -- | Express n/d as both that ratio and a percentage
 percentage :: Int -> Int -> String
 percentage n d = let p = int2Double n / int2Double d * 100 :: Double
-    in printf "%d/%d (%.2f%%)" n d p
+    in mconcat [
+        show n,
+        "/",
+        show d,
+        " (",
+        showFFloat (Just 2) p "%)"
+    ]
 
 progress :: IORef Int -> IORef Int -> IO ()
 progress i o = progress' i o 0
@@ -121,8 +127,16 @@ progress' i o = fix $ \loop n -> do
             o' <- readIORef o
             let p = int2Double o' / int2Double (max 1 i') * 100
                 cc = clearFromCursorToLineBeginningCode
-            T.hPutStr stderr . T.pack $
-                printf "%v\r%c %v lines in / %v out (%.0f%%)" cc (spinny n) i' o' p
+            T.hPutStr stderr . T.pack $ mconcat [
+                cc,
+                "\r",
+                showChar (spinny n) " ",
+                show i',
+                " lines in / ",
+                show o',
+                " out (",
+                showFFloat (Just 0) p "%)"
+                ]
             threadDelay 100000 -- 20 FPS
             loop (n + 1)
 

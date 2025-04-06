@@ -18,7 +18,6 @@ import Data.Word
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Numeric
-import Text.Printf
 
 import GHC.Generics
 import GHC.Stack
@@ -69,9 +68,9 @@ data ParsedLine =
     deriving anyclass (NFData)
 
 showLine :: ParsedLine -> Text
-showLine (TimeLine t) = "#" <> (shaveZeroes . T.pack $ printf "%f" t)
-showLine (PropLine i p) = (T.pack . printf "%x," $ i) <> showProperties p
-showLine (RemLine i) = T.pack $ printf "-%x" i
+showLine (TimeLine t) = "#" <> (shaveZeroes . T.pack $ showFFloat Nothing t "")
+showLine (PropLine i p) = T.pack (showHex i "") <> "," <> showProperties p
+showLine (RemLine i) = "-" <> T.pack (showHex i "")
 showLine (EventLine t is p) = mconcat [
     "0,Event=",
     t,
