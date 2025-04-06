@@ -8,7 +8,6 @@ import Control.Concurrent.TBCQueue
 import Control.Exception
 import Control.Monad
 import Data.ByteString qualified as BS
-import Data.Function (fix)
 import Data.IORef
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -117,18 +116,18 @@ writeToClients ss pl = do
     forM_ chans $ \c -> mapM_ (evalWriteChannel c) ts
 
 feed :: Channel c => ServerState -> c ParsedLine -> IO ()
-feed ss source = atomically (readChannel source) >>= \case
-     Nothing -> do
-        -- For each client, close out each remaining object.
-        liveObjects <- readTVarIO ss.liveObjects
-        let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
-            closeLine i s = PropLine i <$> closeOut s
-            allClosed = mapMaybe (uncurry closeLine) (HM.toList liveObjects)
-        writeToClients ss allClosed
-     Just p -> do
-        (newLines, newState) <- feed' ss p
+feed fistState source = do
+    lastState <- stateConsumeChannel source fistState $ \ !s p -> do
+        (newLines, newState) <- feed' s p
         writeToClients newState $ catMaybes newLines
-        feed newState source
+        pure newState
+
+    -- For each client, close out each remaining object.
+    liveObjects <- readTVarIO lastState.liveObjects
+    let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
+        closeLine i s = PropLine i <$> closeOut s
+        allClosed = mapMaybe (uncurry closeLine) (HM.toList liveObjects)
+    writeToClients lastState allClosed
 
 feed' :: ServerState -> ParsedLine -> IO ([Maybe ParsedLine], ServerState)
 feed' !ss p = let
@@ -223,11 +222,7 @@ serve ss serverName sock who = do
         NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> fmap showLine loLines
 
         -- TODO: Drain channel and send as a chunk.
-        fix $ \loop -> atomically (readChannel chan) >>= \case
-            Nothing -> pure ()
-            Just l -> do
-                NBS.sendAll sock . T.encodeUtf8 $ l <> "\n"
-                loop
+        consumeChannel chan $ \l -> NBS.sendAll sock . T.encodeUtf8 $ l <> "\n"
 
 doHandshake :: Text -> Socket -> SockAddr ->  IO ()
 doHandshake tname sock who = do

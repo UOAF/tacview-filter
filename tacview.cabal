@@ -79,7 +79,6 @@ executable tacview-filter
                    async,
                    clock,
                    optparse-applicative,
-                   stm,
                    text,
 
 executable tacview-replay
@@ -91,7 +90,6 @@ executable tacview-replay
                    tacview,
                    text,
                    optparse-applicative,
-                   stm
 
 executable tacview-server
     import: exeopts
@@ -121,7 +119,6 @@ executable tacview-stats
                    hoare,
                    text,
                    optparse-applicative,
-                   stm,
                    unordered-containers,
 
 executable test-client

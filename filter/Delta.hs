@@ -3,7 +3,6 @@
 module Delta (deltas) where
 
 import Control.Concurrent.Channel
-import Control.Concurrent.STM
 import Control.Exception
 import Data.Bifunctor
 import Data.HashTable.IO qualified as HM
@@ -42,25 +41,24 @@ deltas'
     -> c ParsedLine
     -> c ParsedLine
     -> IO ()
-deltas' !dfs source sink = atomically (readChannel source) >>= \case
-    -- Delta-encode all remaining objects on the way out
-    -- so we don't drop any last-second changes.
-    Nothing -> do
-        let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
-            closeLine i s = PropLine i <$> closeOut s
-        los <- HM.toList dfs.liveObjects
-        let allClosed = mapMaybe (uncurry closeLine) los
-        writeOut sink allClosed
-    Just p -> do
+deltas' dfs source sink = do
+    consumeChannel source $ \p -> do
         newLines <- processLine dfs p
         writeOut sink $ catMaybes newLines
-        deltas' dfs source sink
+
+    -- Delta-encode all remaining objects on the way out
+    -- so we don't drop any last-second changes.
+    let closeLine :: TacId -> ObjectState -> Maybe ParsedLine
+        closeLine i s = PropLine i <$> closeOut s
+    los <- HM.toList dfs.liveObjects
+    let allClosed = mapMaybe (uncurry closeLine) los
+    writeOut sink allClosed
 
 processLine
     :: DeltaFilterState
     -> ParsedLine
     -> IO [Maybe ParsedLine]
-processLine !dfs p = let
+processLine dfs p = let
     -- Helper to write a timestamp when we need a new one.
     writeTimestamp :: IO (Maybe ParsedLine)
     writeTimestamp = do

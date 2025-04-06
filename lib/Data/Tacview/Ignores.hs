@@ -87,18 +87,13 @@ unlessMaybe b v = if b then Nothing else Just v
 
 newtype FilteredLines = FilteredLines Int
 
-filterLines :: Channel c => c Text -> c ParsedLine -> IO FilteredLines
-filterLines = filterLines' startState
-
-filterLines'
+filterLines
     :: Channel c
-    => IgnoreFilterState
-    -> c Text
+    => c Text
     -> c ParsedLine
     -> IO FilteredLines
-filterLines' !fs source sink = atomically (readChannel source) >>= \case
-    Nothing -> pure $ FilteredLines fs.ifsLinesDropped
-    Just l -> do
+filterLines source sink = do
+    endState <- stateConsumeChannel source startState $ \ !fs l -> do
         let p = parseLine l
             (filtered, nextState) = go p
             -- Property lines will update our ignore lists,
@@ -116,11 +111,14 @@ filterLines' !fs source sink = atomically (readChannel source) >>= \case
                 p' = unlessMaybe (ignoreableEvent is fs) p
             -- Pass the rest, no change to state.
             go _ = (Just p, fs)
-        mapM_ (atomically . writeChannel sink) filtered
+        mapM_ (atomically . writeChannel' sink) filtered
+
         -- Add one if we filtered a line out.
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
             nextState' = nextState { ifsLinesDropped = nextCount }
-        filterLines' nextState' source sink
+        pure nextState'
+
+    pure $ FilteredLines endState.ifsLinesDropped
 
 -- | The BMS server currently serves BS g-force measurements which are always 0,
 -- so then Tacview sessions show everything at 0G.

@@ -2,11 +2,9 @@ module Main where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Channel
-import Control.Concurrent.STM
 import Control.Concurrent.TBCQueue
 import Control.Monad
 import Data.Fixed
-import Data.Function (fix)
 import Data.IORef
 import Data.Tacview (parseTime)
 import Data.Tacview.Source qualified as Tacview
@@ -48,39 +46,34 @@ run Args{..} = do
     linesRead <- newIORef 0
     let src = Tacview.source zipInput linesRead
         pipe = pipeline (newTBCQueueIO 1024)
-        delayer sink = pipe src (\source -> delay source sink Nothing)
+        delayer sink = pipe src (`delay` sink)
         writer = pipe delayer writeOut
 
     void writer
 
-delay :: Channel c => c Text -> c Text -> Maybe Double -> IO ()
-delay source sink = fix $ \loop mdelta -> do
-    let go l = do
-            nd <- if T.isPrefixOf "#" l
-                then do
-                    let t = parseTime l :: Double
-                    now <- getTime Monotonic
-                    case mdelta of
-                        -- If we don't have it yet,
-                        -- get the difference between now and the first timestamp.
-                        Nothing -> pure . Just $ realToFrac now - t
-                        -- Once we have it, apply that offset to the timestamp
-                        -- and sleep until then.
-                        Just d -> do
-                            let sleepFor = (t + d) - realToFrac now :: Double
-                            threadDelay . d2micro $ sleepFor
-                            pure mdelta
-                else pure mdelta
-            evalWriteChannel' sink l
-            loop nd
-    atomically (readChannel source) >>= mapM_ go
+delay :: Channel c => c Text -> c Text -> IO ()
+delay source sink = void $ stateConsumeChannel source Nothing $ \ !mdelta l -> do
+    nd <- if T.isPrefixOf "#" l
+        then do
+            let t = parseTime l :: Double
+            now <- getTime Monotonic
+            case mdelta of
+                -- If we don't have it yet,
+                -- get the difference between now and the first timestamp.
+                Nothing -> pure . Just $ realToFrac now - t
+                -- Once we have it, apply that offset to the timestamp
+                -- and sleep until then.
+                Just d -> do
+                    let sleepFor = (t + d) - realToFrac now :: Double
+                    threadDelay . d2micro $ sleepFor
+                    pure mdelta
+        else pure mdelta
+    evalWriteChannel' sink l
+    pure nd
 
 d2micro :: Double -> Int
 d2micro d = fromIntegral m where
     MkFixed m = realToFrac d :: Micro
 
 writeOut :: Channel c => c Text -> IO ()
-writeOut source = atomically (readChannel source) >>= mapM_ go where
-    go l = do
-        T.putStrLn l
-        writeOut source
+writeOut source = consumeChannel source T.putStrLn

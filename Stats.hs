@@ -4,7 +4,6 @@ module Main where
 import Control.Concurrent.Async
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Channel
-import Control.Concurrent.STM
 import Control.Concurrent.TBCQueue
 import Control.Exception
 import Data.Function (fix)
@@ -57,7 +56,7 @@ run Args{..} = do
     start <- getTime Monotonic
     linesRead <- newIORef 0
     let src = Tacview.source zipInput linesRead
-        go = snd <$> pipeline (newTBCQueueIO 1024) src (runStats startingState)
+        go = snd <$> pipeline (newTBCQueueIO 1024) src runStats
     stats <- race (progress linesRead) go >>= \case
         Left () -> error "absurd: progress loop ended"
         Right s -> pure s
@@ -132,10 +131,8 @@ data StatState = StatState {
 startingState :: StatState
 startingState = StatState 0.0 mempty mempty mempty
 
-runStats :: Channel c => StatState -> c Text -> IO StatState
-runStats !s lc = atomically (readChannel lc) >>= \case
-    Just l -> runStats (update s l) lc
-    Nothing -> pure s
+runStats :: Channel c => c Text -> IO StatState
+runStats lc = stateConsumeChannel lc startingState $ \ !s l -> pure (update s l)
 
 update :: StatState -> Text -> StatState
 update s l = case parseLine l of
