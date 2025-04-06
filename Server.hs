@@ -83,9 +83,7 @@ run Args{..} = do
     ss <- ServerState <$>
         newTVarIO mempty <*> newTVarIO mempty <*> newTVarIO mempty <*> pure 0 <*> pure 0
     let src = Tacview.source zipInput linesRead
-        ignore sink = pipeline
-            src
-            (\source -> filterLines Ignores.startState source sink)
+        ignore sink = pipeline src (`filterLines` sink)
         piped = pipeline ignore (feed ss)
     race_ piped (server ss serverName port)
 

@@ -1,7 +1,7 @@
 {-# LANGUAGE StrictData #-}
 
 -- | (Mostly-BMS-specific) filters to ignore objects and events in the Tacview stream
-module Data.Tacview.Ignores (filterLines, FilteredLines(..), IgnoreFilterState, startState) where
+module Data.Tacview.Ignores (filterLines, FilteredLines(..)) where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
@@ -87,12 +87,15 @@ unlessMaybe b v = if b then Nothing else Just v
 
 newtype FilteredLines = FilteredLines Int
 
-filterLines
+filterLines :: Channel Text -> Channel ParsedLine -> IO FilteredLines
+filterLines = filterLines' startState
+
+filterLines'
     :: IgnoreFilterState
     -> Channel Text
     -> Channel ParsedLine
     -> IO FilteredLines
-filterLines !fs source sink = atomically (readChannel source) >>= \case
+filterLines' !fs source sink = atomically (readChannel source) >>= \case
     Nothing -> pure $ FilteredLines fs.ifsLinesDropped
     Just l -> do
         let p = parseLine l
@@ -116,7 +119,7 @@ filterLines !fs source sink = atomically (readChannel source) >>= \case
         -- Add one if we filtered a line out.
         let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
             nextState' = nextState { ifsLinesDropped = nextCount }
-        filterLines nextState' source sink
+        filterLines' nextState' source sink
 
 -- | The BMS server currently serves BS g-force measurements which are always 0,
 -- so then Tacview sessions show everything at 0G.

@@ -63,9 +63,7 @@ runFilter Args{..} = do
     linesWritten <- newIORef 0
     let src = Tacview.source zipInput linesRead
     let dst = Tacview.sink zipInput linesWritten
-    let ignore sink = pipeline
-            src
-            (\source -> filterLines Ignores.startState source sink)
+    let ignore sink = pipeline src (`filterLines` sink)
         thenDeltas sink = pipeline ignore (`deltas` sink)
         thenMinId sink = pipeline thenDeltas (`minId` sink)
         filterPipeline = pipeline thenMinId dst
