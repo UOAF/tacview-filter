@@ -2,6 +2,9 @@ resolver: lts-23.17
 
 packages:
 - .
+- location:
+    git: http://github.com/mrkline/hoare.git
+    commit: aaafa614cf52c8c48ff6f5815f14aad42fa4784e
 
 ghc-options:
   "$everything": -O2

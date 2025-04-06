@@ -3,6 +3,7 @@ module Main where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
+import Control.Concurrent.TBCQueue
 import Control.Monad
 import Data.Fixed
 import Data.Function (fix)
@@ -46,12 +47,13 @@ run :: Args -> IO ()
 run Args{..} = do
     linesRead <- newIORef 0
     let src = Tacview.source zipInput linesRead
-        delayer sink = pipeline src (\source -> delay source sink Nothing)
-        writer = pipeline delayer writeOut
+        pipe = pipeline (newTBCQueueIO 1024)
+        delayer sink = pipe src (\source -> delay source sink Nothing)
+        writer = pipe delayer writeOut
 
     void writer
 
-delay :: Channel Text -> Channel Text -> Maybe Double -> IO ()
+delay :: Channel c => c Text -> c Text -> Maybe Double -> IO ()
 delay source sink = fix $ \loop mdelta -> do
     let go l = do
             nd <- if T.isPrefixOf "#" l
@@ -69,7 +71,7 @@ delay source sink = fix $ \loop mdelta -> do
                             threadDelay . d2micro $ sleepFor
                             pure mdelta
                 else pure mdelta
-            evalWriteChannel sink l
+            evalWriteChannel' sink l
             loop nd
     atomically (readChannel source) >>= mapM_ go
 
@@ -77,7 +79,7 @@ d2micro :: Double -> Int
 d2micro d = fromIntegral m where
     MkFixed m = realToFrac d :: Micro
 
-writeOut :: Channel Text -> IO ()
+writeOut :: Channel c => c Text -> IO ()
 writeOut source = atomically (readChannel source) >>= mapM_ go where
     go l = do
         T.putStrLn l

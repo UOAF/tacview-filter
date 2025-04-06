@@ -15,9 +15,10 @@ import System.IO
 
 -- | Write everything out when we're done.
 sink
-    :: Maybe FilePath
+    :: Channel c
+    => Maybe FilePath
     -> IORef Int
-    -> Channel ParsedLine
+    -> c ParsedLine
     -> IO ()
 sink mfp iow source = do
     sinker <- sinkStream mfp

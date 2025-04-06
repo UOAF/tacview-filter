@@ -87,13 +87,14 @@ unlessMaybe b v = if b then Nothing else Just v
 
 newtype FilteredLines = FilteredLines Int
 
-filterLines :: Channel Text -> Channel ParsedLine -> IO FilteredLines
+filterLines :: Channel c => c Text -> c ParsedLine -> IO FilteredLines
 filterLines = filterLines' startState
 
 filterLines'
-    :: IgnoreFilterState
-    -> Channel Text
-    -> Channel ParsedLine
+    :: Channel c
+    => IgnoreFilterState
+    -> c Text
+    -> c ParsedLine
     -> IO FilteredLines
 filterLines' !fs source sink = atomically (readChannel source) >>= \case
     Nothing -> pure $ FilteredLines fs.ifsLinesDropped

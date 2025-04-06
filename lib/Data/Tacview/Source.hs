@@ -36,15 +36,15 @@ readZip z = withArchive z $ do
     let sel = head $ M.keys e
     getEntrySource sel
 
-source
-    :: Maybe FilePath
+source :: Channel c
+    => Maybe FilePath
     -> IORef Int
-    -> Channel Text
+    -> c Text
     -> IO ()
 source mfp ior c = do
     srcC <- sourceC mfp
     let go l = do
-            evalWriteChannel c l
+            evalWriteChannel' c l
             atomicModifyIORef' ior $ \p -> (p + 1, ())
     runConduitRes $
         srcC .| decodeUtf8C .| linesUnboundedC .| mapM_C (liftIO . go)

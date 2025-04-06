@@ -4,6 +4,7 @@ import Control.Concurrent
 import Control.Concurrent.Async
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
+import Control.Concurrent.TBCQueue
 import Control.Exception
 import Control.Monad
 import Data.ByteString qualified as BS
@@ -70,7 +71,7 @@ main = do
     parser >>= run
 
 data ServerState = ServerState {
-    clients :: TVar (Map SockAddr (Channel Text)),
+    clients :: TVar (Map SockAddr (TBCQueue Text)),
     globalLines :: TVar (Vector Text),
     liveObjects :: TVar (HashMap TacId ObjectState),
     now :: Double,
@@ -83,8 +84,9 @@ run Args{..} = do
     ss <- ServerState <$>
         newTVarIO mempty <*> newTVarIO mempty <*> newTVarIO mempty <*> pure 0 <*> pure 0
     let src = Tacview.source zipInput linesRead
-        ignore sink = pipeline src (`filterLines` sink)
-        piped = pipeline ignore (feed ss)
+        pipe = pipeline (newTBCQueueIO 1024)
+        ignore sink = pipe src (`filterLines` sink)
+        piped = pipe ignore (feed ss)
     race_ piped (server ss serverName port)
 
     -- Wait for all clients?
@@ -114,7 +116,7 @@ writeToClients ss pl = do
     chans <- M.elems <$> readTVarIO ss.clients
     forM_ chans $ \c -> mapM_ (evalWriteChannel c) ts
 
-feed :: ServerState -> Channel ParsedLine -> IO ()
+feed :: Channel c => ServerState -> c ParsedLine -> IO ()
 feed ss source = atomically (readChannel source) >>= \case
      Nothing -> do
         -- For each client, close out each remaining object.
@@ -204,7 +206,7 @@ server ss serverName port = do
 serve :: ServerState -> Text -> Socket -> SockAddr -> IO ()
 serve ss serverName sock who = do
     doHandshake serverName sock who
-    chan <- newChannelIO 1024
+    chan <- newTBCQueueIO 1024
     let register = atomically $ do
             -- It's important we atomically add ourselves *and* get the current state of the world.
             -- This guarantees we're synced up with everyone and ready for the next update

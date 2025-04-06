@@ -28,18 +28,20 @@ startState = do
     l <- newIORef 0.0
     pure $ DeltaFilterState t n l
 
-writeOut :: Channel ParsedLine -> [ParsedLine] -> IO ()
-writeOut c = mapM_ (evalWriteChannel c)
+writeOut :: Channel c => c ParsedLine -> [ParsedLine] -> IO ()
+writeOut c = mapM_ (evalWriteChannel' c)
 
-deltas :: Channel ParsedLine -> Channel ParsedLine -> IO ()
+deltas :: Channel c => c ParsedLine -> c ParsedLine -> IO ()
 deltas source sink = do
     s <- startState
     deltas' s source sink
 
 deltas'
-    :: DeltaFilterState
-    -> Channel ParsedLine
-    -> Channel ParsedLine -> IO ()
+    :: Channel c
+    => DeltaFilterState
+    -> c ParsedLine
+    -> c ParsedLine
+    -> IO ()
 deltas' !dfs source sink = atomically (readChannel source) >>= \case
     -- Delta-encode all remaining objects on the way out
     -- so we don't drop any last-second changes.

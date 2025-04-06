@@ -3,6 +3,7 @@ module Main where
 import Control.Concurrent.Async
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.Channel
+import Control.Concurrent.TBCQueue
 import Control.Monad
 import Data.Function (fix)
 import Data.IORef
@@ -63,10 +64,11 @@ runFilter Args{..} = do
     linesWritten <- newIORef 0
     let src = Tacview.source zipInput linesRead
     let dst = Tacview.sink zipInput linesWritten
-    let ignore sink = pipeline src (`filterLines` sink)
-        thenDeltas sink = pipeline ignore (`deltas` sink)
-        thenMinId sink = pipeline thenDeltas (`minId` sink)
-        filterPipeline = pipeline thenMinId dst
+    let pipe = pipeline (newTBCQueueIO 1024)
+        ignore sink = pipe src (`filterLines` sink)
+        thenDeltas sink = pipe ignore (`deltas` sink)
+        thenMinId sink = pipe thenDeltas (`minId` sink)
+        filterPipeline = pipe thenMinId dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress linesRead linesWritten

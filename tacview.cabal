@@ -43,15 +43,6 @@ common exeopts
     ghc-options: -rtsopts "-with-rtsopts=-N"
 
 
-library channel
-    import: shared
-    exposed-modules: Control.Concurrent.Channel
-    hs-source-dirs: channel
-    build-depends: base,
-                   async,
-                   deepseq,
-                   stm
-
 library
     import: shared
     exposed-modules: Data.Tacview
@@ -62,12 +53,12 @@ library
                      Data.Tacview.Source
     hs-source-dirs: lib
     build-depends: base,
-                   channel,
                    bytestring,
                    conduit,
                    containers,
                    deepseq,
                    hashtables,
+                   hoare,
                    stm,
                    text,
                    unordered-containers,
@@ -80,9 +71,9 @@ executable tacview-filter
     main-is: Main.hs
     other-modules: Delta,
     build-depends: base,
-                   channel,
                    containers,
                    hashtables,
+                   hoare,
                    tacview,
                    ansi-terminal,
                    async,
@@ -95,8 +86,8 @@ executable tacview-replay
     import: exeopts
     main-is: Replay.hs
     build-depends: base,
-                   channel,
                    clock,
+                   hoare,
                    tacview,
                    text,
                    optparse-applicative,
@@ -106,11 +97,11 @@ executable tacview-server
     import: exeopts
     main-is: Server.hs
     build-depends: base,
-                   channel,
                    tacview,
                    async,
                    bytestring,
                    containers,
+                   hoare,
                    network,
                    stm,
                    text,
@@ -122,12 +113,12 @@ executable tacview-stats
     import: exeopts
     main-is: Stats.hs
     build-depends: base,
-                   channel,
                    tacview,
                    ansi-terminal,
                    async,
                    containers,
                    clock,
+                   hoare,
                    text,
                    optparse-applicative,
                    stm,

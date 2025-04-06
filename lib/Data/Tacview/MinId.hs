@@ -17,17 +17,17 @@ data MinIdState = MinIdState {
     nextId :: !(IORef TacId)
 }
 
-minId :: Channel ParsedLine -> Channel ParsedLine -> IO ()
+minId :: Channel c => c ParsedLine -> c ParsedLine -> IO ()
 minId source sink = do
     t <- HM.new
     i <- newIORef 1
     minId' (MinIdState t i) source sink
 
-minId' :: MinIdState -> Channel ParsedLine -> Channel ParsedLine -> IO ()
+minId' :: Channel c => MinIdState -> c ParsedLine -> c ParsedLine -> IO ()
 minId' !state source sink = atomically (readChannel source) >>= \case
     Just l -> do
         l' <- mapLine state l
-        evalWriteChannel sink l'
+        evalWriteChannel' sink l'
         minId' state source sink
     Nothing -> pure ()
 
