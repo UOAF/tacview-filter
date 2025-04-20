@@ -1,8 +1,7 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StrictData #-}
 
 module Data.Tacview where
 
-import Control.DeepSeq
 import Control.Monad
 import Data.Char (isDigit)
 import Data.Functor.Identity
@@ -19,7 +18,6 @@ import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Numeric
 
-import GHC.Generics
 import GHC.Stack
 
 zipExt :: String
@@ -64,8 +62,7 @@ data ParsedLine =
     EventLine Text (Set TacId) Text |
     -- | Global config or something else we don't care to parse
     OtherLine Text
-    deriving stock (Show, Generic)
-    deriving anyclass (NFData)
+    deriving stock (Show)
 
 showLine :: ParsedLine -> Text
 showLine (TimeLine t) = "#" <> (shaveZeroes . T.pack $ showFFloat Nothing t "")
@@ -104,8 +101,7 @@ parseLine l
 
 -- | Positions are a special case, where each coordinate can be delta-encoded.
 data Property = Property Text | Position (Vector Text) | Referencing TacId
-    deriving stock (Show, Eq, Generic)
-    deriving anyclass (NFData)
+    deriving stock (Show, Eq)
 
 showProperty :: Property -> Text
 showProperty (Property t) = shaveZeroes t

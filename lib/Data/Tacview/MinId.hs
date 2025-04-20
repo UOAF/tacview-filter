@@ -3,6 +3,7 @@ module Data.Tacview.MinId (
 ) where
 
 import Control.Concurrent.Channel
+import Control.Concurrent.STM
 import Control.Monad
 import Data.HashTable.IO qualified as HM
 import Data.IORef
@@ -22,7 +23,7 @@ minId source sink = do
     t <- HM.new
     i <- newIORef 1
     let state = MinIdState t i
-    consumeChannel source $ mapLine state >=> evalWriteChannel' sink
+    consumeChannel source $ mapLine state >=> atomically . writeChannel' sink
 
 mapLine :: MinIdState -> ParsedLine -> IO ParsedLine
 mapLine state (PropLine i p) = do

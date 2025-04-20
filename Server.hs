@@ -113,7 +113,7 @@ writeToClients :: ServerState -> [ParsedLine] -> IO ()
 writeToClients ss pl = do
     let ts = showLine <$> pl
     chans <- M.elems <$> readTVarIO ss.clients
-    forM_ chans $ \c -> mapM_ (evalWriteChannel c) ts
+    forM_ chans $ \c -> mapM_ (atomically . writeChannel c) ts
 
 feed :: Channel c => ServerState -> c ParsedLine -> IO ()
 feed fistState source = do

@@ -5,6 +5,7 @@ module Data.Tacview.Source (
 import Codec.Archive.Zip
 import Conduit
 import Control.Concurrent.Channel
+import Control.Concurrent.STM
 import Control.Monad
 import Data.ByteString qualified as BS
 import Data.IORef
@@ -44,7 +45,7 @@ source :: Channel c
 source mfp ior c = do
     srcC <- sourceC mfp
     let go l = do
-            evalWriteChannel' c l
+            atomically $ writeChannel' c l
             atomicModifyIORef' ior $ \p -> (p + 1, ())
     runConduitRes $
         srcC .| decodeUtf8C .| linesUnboundedC .| mapM_C (liftIO . go)

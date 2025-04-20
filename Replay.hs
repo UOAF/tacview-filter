@@ -2,6 +2,7 @@ module Main where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Channel
+import Control.Concurrent.STM
 import Control.Concurrent.TBCQueue
 import Control.Monad
 import Data.Fixed
@@ -68,7 +69,7 @@ delay source sink = void $ stateConsumeChannel source Nothing $ \ !mdelta l -> d
                     threadDelay . d2micro $ sleepFor
                     pure mdelta
         else pure mdelta
-    evalWriteChannel' sink l
+    atomically $ writeChannel' sink l
     pure nd
 
 d2micro :: Double -> Int

@@ -3,6 +3,7 @@
 module Delta (deltas) where
 
 import Control.Concurrent.Channel
+import Control.Concurrent.STM
 import Control.Exception
 import Data.Bifunctor
 import Data.HashTable.IO qualified as HM
@@ -28,7 +29,7 @@ startState = do
     pure $ DeltaFilterState t n l
 
 writeOut :: Channel c => c ParsedLine -> [ParsedLine] -> IO ()
-writeOut c = mapM_ (evalWriteChannel' c)
+writeOut c = mapM_ (atomically . writeChannel' c)
 
 deltas :: Channel c => c ParsedLine -> c ParsedLine -> IO ()
 deltas source sink = do
