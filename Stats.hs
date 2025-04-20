@@ -157,6 +157,7 @@ update s l = case parseLine l of
 unprop :: Property -> Text
 unprop (Property p) = p
 unprop (Position _) = error "absurd: position as Type"
+unprop (Referencing _) = error "absurd: Focused/LockedTarget as Type"
 
 updateObjectState :: Double -> Properties -> Maybe ObjectState -> ObjectState
 updateObjectState now props Nothing = ObjectState{..} where

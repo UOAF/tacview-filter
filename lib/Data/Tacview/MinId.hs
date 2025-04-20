@@ -25,21 +25,32 @@ minId source sink = do
     consumeChannel source $ mapLine state >=> evalWriteChannel' sink
 
 mapLine :: MinIdState -> ParsedLine -> IO ParsedLine
-mapLine state (PropLine i p) = HM.lookup state.idMap i >>= \case
-    Just m -> pure $ PropLine m p
-    Nothing -> do
-        m <- readIORef state.nextId
-        modifyIORef' state.nextId (+ 1)
-        HM.insert state.idMap i m
-        pure $ PropLine m p
+mapLine state (PropLine i p) = do
+    mappedId <- HM.lookup state.idMap i >>= \case
+        Just m -> pure m
+        Nothing -> do
+            m <- readIORef state.nextId
+            modifyIORef' state.nextId (+ 1)
+            HM.insert state.idMap i m
+            pure m
+    mappedProps <- mapM (mapProp state.idMap) p
+    pure $ PropLine mappedId mappedProps
 mapLine state l@(RemLine i) = HM.lookup state.idMap i >>= \case
     Just m -> do
         HM.delete state.idMap i
         pure $ RemLine m
-    Nothing -> pure l -- Weird, but maybe a bug in the source file.
+    -- If we see a removal line with an ID we haven't seen before, that's weird,
+    -- but there's not much we can do. Maybe it's a bug in the source file.
+    Nothing -> pure l
 mapLine state (EventLine t is p) = do
-    let mapId :: TacId -> IO TacId
-        mapId i = fromMaybe i <$> HM.lookup state.idMap i -- Ditto
-    mis <- mapM mapId $ S.toList is
+    mis <- mapM (mapId state.idMap) $ S.toList is
     pure $ EventLine t (S.fromList mis) p
 mapLine _ l = pure l
+
+-- Same as RemLine - not much we can do if a property references an unknown ID.
+mapId :: IdTable -> TacId -> IO TacId
+mapId idt i = fromMaybe i <$> HM.lookup idt i
+
+mapProp :: IdTable -> Property -> IO Property
+mapProp idt (Referencing tid) = Referencing <$> mapId idt tid
+mapProp _ p = pure p

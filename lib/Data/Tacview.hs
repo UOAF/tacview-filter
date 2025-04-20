@@ -103,13 +103,14 @@ parseLine l
         Nothing -> OtherLine l
 
 -- | Positions are a special case, where each coordinate can be delta-encoded.
-data Property = Property Text | Position (Vector Text)
+data Property = Property Text | Position (Vector Text) | Referencing TacId
     deriving stock (Show, Eq, Generic)
     deriving anyclass (NFData)
 
 showProperty :: Property -> Text
 showProperty (Property t) = shaveZeroes t
 showProperty (Position v) = T.intercalate "|" $ shaveZeroes <$> V.toList v
+showProperty (Referencing tid) = T.pack $ showHex tid ""
 
 shaveZeroes :: Text -> Text
 shaveZeroes t = if T.all (\c -> isDigit c || c == '.') t
@@ -128,9 +129,12 @@ parseProperty :: Text -> (Text, Property)
 parseProperty pl = (k, p) where
     (k, vWithEq) = T.breakOn "=" pl
     v = T.tail vWithEq
-    p = if k == "T" -- Positions have the key "T" and get special treatment
-        then Position . V.fromList . T.splitOn "|" $ v
-        else Property v
+    -- We do a little special casing, eh?
+    p = if
+        | k == "T" ->  Position . V.fromList . T.splitOn "|" $ v
+        | k == "FocusedTarget" -> Referencing $ parseId v
+        | "LockedTarget" `T.isPrefixOf` k -> Referencing $ parseId v
+        | otherwise -> Property v
 
 type Properties = HashMap Text Property
 
@@ -159,10 +163,12 @@ updateProperties = HM.unionWith updateProperty
 -- For positions, individual coordinates in the position can be delta-encoded.
 updateProperty :: Property -> Property -> Property
 updateProperty (Property _old) new@(Property _) = new
+updateProperty (Referencing _old) new@(Referencing _) = new
 updateProperty (Position old) (Position new) = if V.length old == V.length new
     then Position $ V.zipWith maybeCoord old new
     else Position new
-updateProperty _ _ = error "Mixing properties and positions"
+updateProperty old new = error $ mconcat
+    ["Mixing properties and positions: ", show old, " -> ", show new]
 
 -- | For coordinates: Replace blanks with not blanks.
 -- We're trying to accumulate data here.
@@ -179,6 +185,7 @@ deltaProperties old new = HM.differenceWith (flip deltaProperty) new old
 
 deltaProperty :: Property -> Property -> Maybe Property
 deltaProperty (Property old) (Property new) = if old == new then Nothing else Just (Property new)
+deltaProperty (Referencing old) (Referencing new) = if old == new then Nothing else Just (Referencing new)
 deltaProperty (Position old) (Position new) = if V.length old == V.length new
     then let
         go coords -- If none of the coords have changed, skip T=||| crap.
@@ -186,7 +193,8 @@ deltaProperty (Position old) (Position new) = if V.length old == V.length new
             | otherwise = Just (Position coords)
         in go $ V.zipWith deltaCoord old new
     else Just (Position new) -- If the coordinate type change, give us the new one.
-deltaProperty _ _ = error "Mixing properties and positions"
+deltaProperty old new = error $ mconcat
+    ["Mixing properties and positions: ", show old, " -> ", show new]
 
 deltaCoord :: Text -> Text -> Text
 deltaCoord old new = if old == new then "" else new

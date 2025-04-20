@@ -33,6 +33,7 @@ common shared
                         DerivingStrategies,
                         ImportQualifiedPost,
                         LambdaCase,
+                        MultiWayIf,
                         OverloadedRecordDot,
                         OverloadedStrings,
                         RecordWildCards,
