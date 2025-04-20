@@ -4,7 +4,7 @@ packages:
 - .
 
 extra-deps:
-- git: http://github.com/mrkline/hoare.git
+- git: https://github.com/mrkline/hoare.git
   commit: 105355fda6463432e0aa4775dc18b70b5f0ed9e5
 
 ghc-options:
