@@ -14,22 +14,18 @@ import Data.Text qualified as T
 import System.IO
 
 -- | Write everything out when we're done.
-sink
-    :: Channel c
-    => Maybe FilePath
-    -> IORef Int
-    -> c ParsedLine
-    -> IO ()
-sink mfp iow source = do
-    sinker <- sinkStream mfp
-    let srcC :: ConduitT () BS.ByteString (ResourceT IO) ()
-        srcC = repeatMC (liftIO $ atomically (readChannel source))
+sink :: Channel c => Maybe FilePath -> IO (c ParsedLine -> IO (), IORef Integer)
+sink mfp = do
+    iow <- newIORef 0
+    to <- sinkStream mfp
+    let srcC source = repeatMC (liftIO $ atomically (readChannel source))
             .| mapWhileC id
             .| mapC showLine
             .| iterMC (const . liftIO $ atomicModifyIORef' iow $ \p -> (p + 1, ()))
             .| unlinesC
             .| encodeUtf8C
-    sinker srcC
+        sinker src = to $ srcC src
+    pure (sinker, iow)
 
 sinkStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
 sinkStream = \case

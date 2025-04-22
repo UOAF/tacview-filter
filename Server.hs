@@ -8,7 +8,6 @@ import Control.Concurrent.TBCQueue
 import Control.Exception
 import Control.Monad
 import Data.ByteString qualified as BS
-import Data.IORef
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Set qualified as S
@@ -79,11 +78,10 @@ data ServerState = ServerState {
 
 run :: Args -> IO ()
 run Args{..} = do
-    linesRead <- newIORef 0
     ss <- ServerState <$>
         newTVarIO mempty <*> newTVarIO mempty <*> newTVarIO mempty <*> pure 0 <*> pure 0
-    let src = Tacview.source zipInput linesRead
-        pipe = pipeline (newTBCQueueIO 1024)
+    (src, _, _) <- Tacview.source zipInput
+    let pipe = pipeline (newTBCQueueIO 1024)
         ignore sink = pipe src (`filterLines` sink)
         piped = pipe ignore (feed ss)
     race_ piped (server ss serverName port)

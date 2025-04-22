@@ -6,7 +6,6 @@ import Control.Concurrent.STM
 import Control.Concurrent.TBCQueue
 import Control.Monad
 import Data.Fixed
-import Data.IORef
 import Data.Tacview (parseTime)
 import Data.Tacview.Source qualified as Tacview
 import Data.Text (Text)
@@ -44,9 +43,8 @@ main = do
 
 run :: Args -> IO ()
 run Args{..} = do
-    linesRead <- newIORef 0
-    let src = Tacview.source zipInput linesRead
-        pipe = pipeline (newTBCQueueIO 1024)
+    (src, _, _) <- Tacview.source zipInput
+    let pipe = pipeline (newTBCQueueIO 1024)
         delayer sink = pipe src (`delay` sink)
         writer = pipe delayer writeOut
 

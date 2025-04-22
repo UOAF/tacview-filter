@@ -7,13 +7,14 @@ import Control.Concurrent.TBCQueue
 import Control.Monad
 import Data.Function (fix)
 import Data.IORef
+import Data.Ratio
 import Data.Tacview.Ignores as Ignores
 import Data.Tacview.MinId
 import Data.Tacview.Sink qualified as Tacview
+import Data.Tacview.Source (SourceProgress(..))
 import Data.Tacview.Source qualified as Tacview
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import GHC.Float
 import Numeric
 import Options.Applicative
 import System.Clock.Seconds
@@ -60,10 +61,8 @@ runFilter Args{..} = do
     -- Major steps are run in their own task.
     -- They filters or modify lines, then pass the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
-    linesRead <- newIORef 0
-    linesWritten <- newIORef 0
-    let src = Tacview.source zipInput linesRead
-    let dst = Tacview.sink zipInput linesWritten
+    (src, mlen, readProgress) <- Tacview.source zipInput
+    (dst, linesWritten) <- Tacview.sink zipInput
     let pipe = pipeline (newTBCQueueIO 1024)
         ignore sink = pipe src (`filterLines` sink)
         thenDeltas sink = pipe ignore (`deltas` sink)
@@ -71,7 +70,7 @@ runFilter Args{..} = do
         filterPipeline = pipe thenMinId dst
         prog = if noProgress
             then forever $ threadDelay maxBound
-            else progress linesRead linesWritten
+            else progress mlen readProgress linesWritten
 
     runnit <- race filterPipeline prog
 
@@ -91,53 +90,55 @@ runFilter Args{..} = do
     hPutStrLn stderr $ show f <> " lines ignored"
     -- Hmm: https://gitlab.haskell.org/ghc/ghc/-/issues/22468
     -- https://github.com/haskell/core-libraries-committee/issues/112
-    i <- readIORef linesRead
+    i <- readIORef readProgress.lines
     o <- readIORef linesWritten
-    hPutStrLn stderr $ percentage o i <> " total lines in/out"
+    hPutStrLn stderr $ mconcat [
+        show o,
+        "/",
+        show i,
+        " total lines out/in (",
+        showFFloat (Just 2) (realToFrac $ o % i * 100) "% original size)"
+        ]
     let perSec = fromIntegral i / toRational dt
     hPutStrLn stderr $ show (round perSec :: Integer) <> " lines/second"
 
--- | Express n/d as both that ratio and a percentage
-percentage :: Int -> Int -> String
-percentage n d = let p = int2Double n / int2Double d * 100 :: Double
-    in mconcat [
-        show n,
-        "/",
-        show d,
-        " (",
-        showFFloat (Just 2) p "%)"
-    ]
+progress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO ()
+progress mlen i o = progress' mlen i o 0
 
-progress :: IORef Int -> IORef Int -> IO ()
-progress i o = progress' i o 0
-
-progress' :: IORef Int -> IORef Int -> Int -> IO ()
-progress' i o = fix $ \loop n -> do
-    i' <- readIORef i
+progress' :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> Int -> IO ()
+progress' mlen i o = fix $ \loop !n -> do
+    i' <- readIORef i.lines
     if i' == 0
         then do
             hPutStr stderr "waiting for input on stdin..."
             let waitForInput = do
                     -- Polling is bad but I'll take it instead of busting out STM just yet.
                     threadDelay 100000 -- 20 FPS
-                    i'' <- readIORef i
+                    i'' <- readIORef i.lines
                     if i'' == 0 then waitForInput else loop n
             waitForInput
 
 
         else do
+            b <- readIORef i.bytes
             o' <- readIORef o
-            let p = int2Double o' / int2Double (max 1 i') * 100
-                cc = clearFromCursorToLineBeginningCode
+            let cc = clearFromCursorToLineBeginningCode
+                donePercent = case mlen of
+                    Just len -> ", " <> show (round $ b % len * 100) <> "% done"
+                    Nothing -> ""
+                compressedPercent = show $ round $ (o' % max 1 i') * 100
             T.hPutStr stderr . T.pack $ mconcat [
                 cc,
                 "\r",
                 showChar (spinny n) " ",
-                show i',
-                " lines in / ",
                 show o',
-                " out (",
-                showFFloat (Just 0) p "%)"
+                "/",
+                show i',
+                " lines out/in (",
+                compressedPercent,
+                "% original size",
+                donePercent,
+                ")"
                 ]
             threadDelay 100000 -- 20 FPS
             loop (n + 1)

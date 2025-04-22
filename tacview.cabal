@@ -57,6 +57,7 @@ library
                    bytestring,
                    conduit,
                    containers,
+                   directory,
                    hashtables,
                    hoare,
                    stm,
