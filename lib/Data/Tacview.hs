@@ -14,8 +14,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Read qualified as T
 import Data.Word
-import Data.Vector (Vector)
-import Data.Vector qualified as V
+import Data.Vector.Strict (Vector)
+import Data.Vector.Strict qualified as V
 import Numeric
 
 import GHC.Stack
