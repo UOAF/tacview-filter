@@ -104,8 +104,8 @@ data Property = Property Text | Position (Vector Text) | Referencing TacId
     deriving stock (Show, Eq)
 
 showProperty :: Property -> Text
-showProperty (Property t) = shaveZeroes t
-showProperty (Position v) = T.intercalate "|" $ shaveZeroes <$> V.toList v
+showProperty (Property t) = t
+showProperty (Position v) = T.intercalate "|" $ V.toList v
 showProperty (Referencing tid) = T.pack $ showHex tid ""
 
 shaveZeroes :: Text -> Text
@@ -131,10 +131,10 @@ parseProperty pl = (k, p) where
     v = T.tail vWithEq
     -- We do a little special casing, eh?
     p = if
-        | k == "T" ->  Position . V.fromList . T.splitOn "|" $ v
+        | k == "T" ->  Position . V.fromList $ shaveZeroes <$> T.splitOn "|" v
         | k == "FocusedTarget" -> Referencing $ parseId v
         | "LockedTarget" `T.isPrefixOf` k -> Referencing $ parseId v
-        | otherwise -> Property v
+        | otherwise -> Property $ shaveZeroes v
 
 type Properties = HashMap Text Property
 
