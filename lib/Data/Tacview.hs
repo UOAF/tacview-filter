@@ -109,8 +109,12 @@ showProperty (Position v) = T.intercalate "|" $ shaveZeroes <$> V.toList v
 showProperty (Referencing tid) = T.pack $ showHex tid ""
 
 shaveZeroes :: Text -> Text
-shaveZeroes t = if T.all (\c -> isDigit c || c == '.') t
-    then let
+shaveZeroes t = if
+    | t == "" -> ""
+    | T.head t == '-' -> let
+        n = shaveZeroes (T.tail t)
+        in if n == "0" then n else "-" <> n
+    | T.all (\c -> isDigit c || c == '.') t -> let
         go [whole, fractional] = let
             trimmedFrac = T.dropWhileEnd (== '0') fractional
             in if T.null trimmedFrac
@@ -118,7 +122,7 @@ shaveZeroes t = if T.all (\c -> isDigit c || c == '.') t
                 else whole <> "." <> trimmedFrac
         go _ = t
         in go $ T.splitOn "." t
-    else t
+    | otherwise -> t
 
 -- | Each property is <name>=<value>
 parseProperty :: Text -> (Text, Property)
