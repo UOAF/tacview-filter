@@ -56,7 +56,7 @@ writeZip z src = do
             eaDeleteField = M.empty
             eaExtFileAttr = M.empty
             ea = ZI.EditingActions{..}
-        (es, des) <- ZI.sinkEntry h sel ZI.GenericOrigin src ea
-        let cdmap = M.singleton es des
+        des <- ZI.sinkEntry h sel ZI.GenericOrigin src ea
+        let cdmap = M.singleton sel des
         ZI.writeCD h (Just "Generated with tacview-filter") cdmap
 
