@@ -5,7 +5,8 @@ module Data.Tacview.Ignores (filterLines, FilteredLines(..)) where
 
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
-import Control.Exception.Safe
+import Control.Exception (annotateIO)
+import Control.Exception.Annotation (ExceptionAnnotation)
 import Data.HashSet (HashSet)
 import Data.HashSet qualified as HS
 import Data.Set (Set)
@@ -88,40 +89,42 @@ unlessMaybe b v = if b then Nothing else Just v
 
 newtype FilteredLines = FilteredLines Int
 
+newtype LineContext = LineContext Text deriving anyclass (ExceptionAnnotation)
+
+instance Show LineContext where
+    show (LineContext l) = "on line `" <> T.unpack l <> "`"
+
 filterLines
     :: Channel c
     => c Text
     -> c ParsedLine
     -> IO FilteredLines
 filterLines source sink = do
-    endState <- stateConsumeChannel source startState $ \ !fs l -> do
-        let perLine = do
-                let p = parseLine l
-                    (filtered, nextState) = go p
-                    -- Property lines will update our ignore lists,
-                    -- then get filtered on the _updated_ version of those, fs'
-                    go (PropLine pid rawProps) = (p', fs') where
-                        fs' = updateIgnores pid l fs
-                        p' = unlessMaybe (HS.member pid fs'.ifsIgnored) (PropLine pid $ sansG rawProps)
-                    -- Skip a removal line if we're ignoring the object.
-                    -- The next state is the current one with the ID removed.
-                    go (RemLine r) = (p', fs') where
-                        p' = unlessMaybe (HS.member r fs.ifsIgnored) p
-                        fs' = removeId r fs
-                    -- Skip an event if it's ignoreable.
-                    go (EventLine _ is _) = (p', fs) where
-                        p' = unlessMaybe (ignoreableEvent is fs) p
-                    -- Pass the rest, no change to state.
-                    go _ = (Just p, fs)
-                mapM_ (atomically . writeChannel' sink) filtered
+    endState <- stateConsumeChannel source startState $ \ !fs l ->
+        annotateIO (LineContext l) $ do
+            let p = parseLine l
+                (filtered, nextState) = go p
+                -- Property lines will update our ignore lists,
+                -- then get filtered on the _updated_ version of those, fs'
+                go (PropLine pid rawProps) = (p', fs') where
+                    fs' = updateIgnores pid l fs
+                    p' = unlessMaybe (HS.member pid fs'.ifsIgnored) (PropLine pid $ sansG rawProps)
+                -- Skip a removal line if we're ignoring the object.
+                -- The next state is the current one with the ID removed.
+                go (RemLine r) = (p', fs') where
+                    p' = unlessMaybe (HS.member r fs.ifsIgnored) p
+                    fs' = removeId r fs
+                -- Skip an event if it's ignoreable.
+                go (EventLine _ is _) = (p', fs) where
+                    p' = unlessMaybe (ignoreableEvent is fs) p
+                -- Pass the rest, no change to state.
+                go _ = (Just p, fs)
+            mapM_ (atomically . writeChannel' sink) filtered
 
-                -- Add one if we filtered a line out.
-                let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
-                    nextState' = nextState { ifsLinesDropped = nextCount }
-                pure nextState'
-        tryAny perLine >>= \case
-            Left e -> throwString $ "on line `" <> (T.unpack l) <> "`: " <> show e
-            Right ns -> pure ns
+            -- Add one if we filtered a line out.
+            let nextCount = fs.ifsLinesDropped + if isNothing filtered then 1 else 0
+                nextState' = nextState { ifsLinesDropped = nextCount }
+            pure nextState'
 
     pure $ FilteredLines endState.ifsLinesDropped
 

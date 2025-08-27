@@ -3,7 +3,18 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/topics/lock_files
 
-packages: []
+packages:
+- completed:
+    commit: d4a8a0452b800ad840dcff82c1f48cf8bea0906f
+    git: https://github.com/mrkline/async.git
+    name: async
+    pantry-tree:
+      sha256: d5ff5db23f08b913c3e97bd462350fc3b66fb167b837b94e4d1dd1c1d6f5796e
+      size: 1000
+    version: 2.2.7
+  original:
+    commit: d4a8a0452b800ad840dcff82c1f48cf8bea0906f
+    git: https://github.com/mrkline/async.git
 snapshots:
 - completed:
     sha256: 473840099b95facf73ec72dcafe53a2487bfadeceb03a981a19e16469503a342

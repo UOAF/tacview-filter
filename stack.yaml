@@ -3,5 +3,9 @@ resolver: lts-24.6
 packages:
 - .
 
+extra-deps:
+- git: https://github.com/mrkline/async.git
+  commit: d4a8a0452b800ad840dcff82c1f48cf8bea0906f
+
 ghc-options:
   "$everything": -O2

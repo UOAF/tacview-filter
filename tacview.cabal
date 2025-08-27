@@ -60,7 +60,6 @@ library
                    directory,
                    hashtables,
                    hoare,
-                   safe-exceptions,
                    stm,
                    text,
                    unordered-containers,
