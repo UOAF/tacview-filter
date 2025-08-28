@@ -8,7 +8,6 @@ import Control.Monad
 import Data.HashTable.IO qualified as HM
 import Data.IORef
 import Data.Set qualified as S
-import Data.Maybe
 import Data.Tacview
 
 type IdTable = HM.BasicHashTable TacId TacId
@@ -27,14 +26,8 @@ minId source sink = do
 
 mapLine :: MinIdState -> ParsedLine -> IO ParsedLine
 mapLine state (PropLine i p) = do
-    mappedId <- HM.lookup state.idMap i >>= \case
-        Just m -> pure m
-        Nothing -> do
-            m <- readIORef state.nextId
-            modifyIORef' state.nextId (+ 1)
-            HM.insert state.idMap i m
-            pure m
-    mappedProps <- mapM (mapProp state.idMap) p
+    mappedId <- lookupOrInsert state i
+    mappedProps <- mapM (mapProp state) p
     pure $ PropLine mappedId mappedProps
 mapLine state l@(RemLine i) = HM.lookup state.idMap i >>= \case
     Just m -> do
@@ -44,14 +37,22 @@ mapLine state l@(RemLine i) = HM.lookup state.idMap i >>= \case
     -- but there's not much we can do. Maybe it's a bug in the source file.
     Nothing -> pure l
 mapLine state (EventLine t is p) = do
-    mis <- mapM (mapId state.idMap) $ S.toList is
+    mis <- mapM (lookupOrInsert state) $ S.toList is
     pure $ EventLine t (S.fromList mis) p
 mapLine _ l = pure l
 
--- Same as RemLine - not much we can do if a property references an unknown ID.
-mapId :: IdTable -> TacId -> IO TacId
-mapId idt i = fromMaybe i <$> HM.lookup idt i
+lookupOrInsert :: MinIdState -> TacId -> IO TacId
+lookupOrInsert _ 0 = pure 0
+lookupOrInsert state i = HM.lookup state.idMap i >>= \case
+    Just m -> pure m
+    Nothing -> do
+        m <- readIORef state.nextId
+        modifyIORef' state.nextId (+ 1)
+        HM.insert state.idMap i m
+        pure m
 
-mapProp :: IdTable -> Property -> IO Property
-mapProp idt (Referencing tid) = Referencing <$> mapId idt tid
+-- If we come across a property (say, LockedTarget) referencing a previously-unseen ID,
+-- assume we'll run into it soon and make a mapping for it.
+mapProp :: MinIdState -> Property -> IO Property
+mapProp state (Referencing tid) = Referencing <$> lookupOrInsert state tid
 mapProp _ p = pure p
