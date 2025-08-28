@@ -46,7 +46,8 @@ common exeopts
 
 library
     import: shared
-    exposed-modules: Data.Tacview
+    exposed-modules: Data.Tacview.Annotate
+                     Data.Tacview
                      Data.Tacview.Delta
                      Data.Tacview.Ignores
                      Data.Tacview.MinId

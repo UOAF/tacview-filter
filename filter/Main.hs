@@ -4,10 +4,13 @@ import Control.Concurrent.Async
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.Channel
 import Control.Concurrent.TBCQueue
+import Control.Exception
 import Control.Monad
 import Data.Function (fix)
 import Data.IORef
+import Data.Maybe
 import Data.Ratio
+import Data.Tacview.Annotate
 import Data.Tacview.Ignores as Ignores
 import Data.Tacview.MinId
 import Data.Tacview.Sink qualified as Tacview
@@ -67,7 +70,7 @@ runFilter Args{..} = do
         ignore sink = pipe src (`filterLines` sink)
         thenDeltas sink = pipe ignore (`deltas` sink)
         thenMinId sink = pipe thenDeltas (`minId` sink)
-        filterPipeline = pipe thenMinId dst
+        filterPipeline = whileIO ("in " <> fromMaybe "stdin" zipInput) $ pipe thenMinId dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress mlen readProgress linesWritten
@@ -103,7 +106,7 @@ runFilter Args{..} = do
     hPutStrLn stderr $ show (round perSec :: Integer) <> " lines/second"
 
 progress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO ()
-progress mlen i o = progress' mlen i o 0
+progress mlen i o = progress' mlen i o 0 `onException` hPutStr stderr "\n\n"
 
 progress' :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> Int -> IO ()
 progress' mlen i o = fix $ \loop !n -> do
