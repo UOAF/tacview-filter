@@ -29,13 +29,9 @@ mapLine state (PropLine i p) = do
     mappedId <- lookupOrInsert state i
     mappedProps <- mapM (mapProp state) p
     pure $ PropLine mappedId mappedProps
-mapLine state l@(RemLine i) = HM.lookup state.idMap i >>= \case
-    Just m -> do
-        HM.delete state.idMap i
-        pure $ RemLine m
-    -- If we see a removal line with an ID we haven't seen before, that's weird,
-    -- but there's not much we can do. Maybe it's a bug in the source file.
-    Nothing -> pure l
+-- If we see a removal line with an ID we haven't seen before, that's weird,
+-- but let's at least make it small.
+mapLine state (RemLine i) = RemLine <$> lookupOrInsert state i
 mapLine state (EventLine t is p) = do
     mis <- mapM (lookupOrInsert state) $ S.toList is
     pure $ EventLine t (S.fromList mis) p
