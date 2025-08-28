@@ -68,9 +68,9 @@ runFilter Args{..} = do
     (dst, linesWritten) <- Tacview.sink zipInput
     let pipe = pipeline (newTBCQueueIO 1024)
         ignore sink = pipe src (`filterLines` sink)
-        thenDeltas sink = pipe ignore (`deltas` sink)
-        thenMinId sink = pipe thenDeltas (`minId` sink)
-        filterPipeline = whileIO ("in " <> fromMaybe "stdin" zipInput) $ pipe thenMinId dst
+        thenMinId sink = pipe ignore (`minId` sink)
+        thenDeltas sink = pipe thenMinId (`deltas` sink)
+        filterPipeline = whileIO ("in " <> fromMaybe "stdin" zipInput) $ pipe thenDeltas dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress mlen readProgress linesWritten
