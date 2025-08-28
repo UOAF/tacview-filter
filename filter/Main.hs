@@ -113,7 +113,7 @@ progress' mlen i o = fix $ \loop !n -> do
     i' <- readIORef i.lines
     if i' == 0
         then do
-            hPutStr stderr "waiting for input on stdin..."
+            hPutStr stderr "waiting for input..."
             let waitForInput = do
                     -- Polling is bad but I'll take it instead of busting out STM just yet.
                     threadDelay 100000 -- 20 FPS
