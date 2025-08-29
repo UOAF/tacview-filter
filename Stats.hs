@@ -6,7 +6,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Channel
 import Control.Concurrent.TBCQueue
 import Control.Exception
-import Data.Function (fix)
+import Control.Monad
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.IORef
@@ -20,7 +20,7 @@ import Data.Tacview
 import Data.Tacview.Source qualified as Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
+import Data.Void
 import Numeric
 import Options.Applicative
 import System.Clock.Seconds
@@ -45,8 +45,10 @@ main = do
     hSetNewlineMode stdout noNewlineTranslation
     hSetNewlineMode stderr noNewlineTranslation
 
-    -- lol latency
-    hSetBuffering stdout LineBuffering
+    -- lol IO
+    hSetBuffering stdin $ BlockBuffering Nothing
+    hSetBuffering stdout $ BlockBuffering Nothing
+    hSetBuffering stderr $ BlockBuffering Nothing
 
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
@@ -58,9 +60,9 @@ run Args{..} = do
     start <- getTime Monotonic
     (src, mlen, readProgress) <- Tacview.source zipInput
     let go = snd <$> pipeline (newTBCQueueIO 1024) src runStats
-    stats <- race (progress mlen readProgress) go >>= \case
-        Left () -> error "absurd: progress loop ended"
-        Right s -> pure s
+    stats <- race go (progress mlen readProgress) >>= \case
+        Left l -> pure l
+        Right r -> absurd r
     end <- getTime Monotonic
     let dt = end - start
         dts = showFFloat (Just 2) (realToFrac dt :: Double) ""
@@ -181,40 +183,44 @@ updateTypeStats (Just dt) objType prev = M.insertWith app objType first prev whe
     app _new = appendDelta dt
     first = initStats dt
 
-progress :: Maybe Integer -> Tacview.SourceProgress -> IO ()
-progress mlen i = progress' mlen i 0
+progress :: Maybe Integer -> Tacview.SourceProgress -> IO Void
+progress mlen i = do
+    hPutStr stderr "waiting for input..."
+    hFlush stderr
+    let waitForInput = do
+            -- Polling is bad but I'll take it instead of busting out STM just yet.
+            threadDelay 100000
+            i' <- readIORef i.lines
+            when (i' == 0) waitForInput
+    waitForInput
+    let go !n = do
+            printProgress mlen i (Just n)
+            threadDelay 100000
+            go (n + 1)
 
-progress' :: Maybe Integer -> Tacview.SourceProgress  -> Int -> IO ()
-progress' mlen i = fix $ \loop !n -> do
+    go 0 where
+
+printProgress :: Maybe Integer -> Tacview.SourceProgress -> Maybe Int -> IO ()
+printProgress mlen i mn = do
     i' <- readIORef i.lines
-    if i' == 0
-        then do
-            hPutStr stderr "waiting for input on stdin..."
-            let waitForInput = do
-                    -- Polling is bad but I'll take it instead of busting out STM just yet.
-                    threadDelay 100000 -- 20 FPS
-                    i'' <- readIORef i.lines
-                    if i'' == 0 then waitForInput else loop n
-            waitForInput
-        else do
-            b <- readIORef i.bytes
-            let cc = clearFromCursorToLineBeginningCode
-                donePercent = case mlen of
-                    Just len -> " (" <> show (round $ b % len * 100) <> "% done)"
-                    Nothing -> ""
-            T.hPutStr stderr . T.pack $ mconcat [
-                cc,
-                "\r",
-                showChar (spinny n) " Read ",
-                show i',
-                " lines",
-                donePercent
-                ]
-            threadDelay 100000 -- 20 FPS
-            loop (n + 1)
+    b <- readIORef i.bytes
+    let cc = clearFromCursorToLineBeginningCode
+        donePercent = case mlen of
+            Just len -> " (" <> show (round $ b % len * 100) <> "% done)"
+            Nothing -> ""
+    hPutStr stderr $ mconcat [
+        cc,
+        "\r",
+        showChar (spinny mn) " Read ",
+        show i',
+        " lines",
+        donePercent
+        ]
+    hFlush stderr
 
-spinny :: Int -> Char
-spinny n = case n `mod` 4 of
+spinny :: Maybe Int -> Char
+spinny Nothing = ' '
+spinny (Just n) = case n `mod` 4 of
     0 -> '|'
     1 -> '/'
     2 -> '-'

@@ -6,7 +6,6 @@ import Control.Concurrent.Channel
 import Control.Concurrent.TBCQueue
 import Control.Exception
 import Control.Monad
-import Data.Function (fix)
 import Data.IORef
 import Data.Maybe
 import Data.Ratio
@@ -16,8 +15,7 @@ import Data.Tacview.MinId
 import Data.Tacview.Sink qualified as Tacview
 import Data.Tacview.Source (SourceProgress(..))
 import Data.Tacview.Source qualified as Tacview
-import Data.Text qualified as T
-import Data.Text.IO qualified as T
+import Data.Void
 import Numeric
 import Options.Applicative
 import System.Clock.Seconds
@@ -50,6 +48,11 @@ main = do
     hSetNewlineMode stdout noNewlineTranslation
     hSetNewlineMode stderr noNewlineTranslation
 
+    -- lol IO
+    hSetBuffering stderr $ BlockBuffering Nothing
+    hSetBuffering stdin $ BlockBuffering Nothing
+    hSetBuffering stdout $ BlockBuffering Nothing
+
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
             progDesc "Ensmallens ACMI files"
@@ -67,20 +70,22 @@ runFilter Args{..} = do
     (src, mlen, readProgress) <- Tacview.source zipInput
     (dst, linesWritten) <- Tacview.sink zipInput
     let pipe = pipeline (newTBCQueueIO 1024)
-        ignore sink = pipe src (`filterLines` sink)
-        thenMinId sink = pipe ignore (`minId` sink)
-        thenDeltas sink = pipe thenMinId (`deltas` sink)
-        filterPipeline = whileIO ("in " <> fromMaybe "stdin" zipInput) $ pipe thenDeltas dst
+        ignore sink = snd <$> pipe src (`filterLines` sink)
+        thenMinId sink = fst <$> pipe ignore (`minId` sink)
+        thenDeltas sink = fst <$> pipe thenMinId (`deltas` sink)
+        filterPipeline = whileIO ("in " <> fromMaybe "stdin" zipInput) $
+            fst <$> pipe thenDeltas dst
         prog = if noProgress
             then forever $ threadDelay maxBound
             else progress mlen readProgress linesWritten
 
     runnit <- race filterPipeline prog
+    printProgress mlen readProgress linesWritten Nothing -- Print 100%
 
-    -- Gather up all our stats, placed in newtypes for easier readability here.
-    let (((((), FilteredLines f), ()), ()), ()) = case runnit of
+    -- Gather up our stats, placed in newtypes for easier readability here.
+    let (FilteredLines f) = case runnit of
             Left l -> l
-            Right () -> error "absurd: progress should run forever"
+            Right r -> absurd r
 
     end <- getTime Monotonic
     let dt = end - start
@@ -105,49 +110,54 @@ runFilter Args{..} = do
     let perSec = fromIntegral i / toRational dt
     hPutStrLn stderr $ show (round perSec :: Integer) <> " lines/second"
 
-progress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO ()
-progress mlen i o = progress' mlen i o 0 `onException` hPutStr stderr "\n\n"
+progress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO Void
+progress mlen i o = progress' mlen i o `onException` hPutStr stderr "\n\n"
 
-progress' :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> Int -> IO ()
-progress' mlen i o = fix $ \loop !n -> do
+progress' :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO Void
+progress' mlen i o = do
+    hPutStr stderr "waiting for input..."
+    hFlush stderr
+    let waitForInput = do
+            -- Polling is bad but I'll take it instead of busting out STM just yet.
+            threadDelay 100000
+            i' <- readIORef i.lines
+            when (i' == 0) waitForInput
+    waitForInput
+    let go !n = do
+            printProgress mlen i o (Just n)
+            threadDelay 100000
+            go (n + 1)
+
+    go 0 where
+
+printProgress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> Maybe Int -> IO ()
+printProgress mlen i o mn = do
     i' <- readIORef i.lines
-    if i' == 0
-        then do
-            hPutStr stderr "waiting for input..."
-            let waitForInput = do
-                    -- Polling is bad but I'll take it instead of busting out STM just yet.
-                    threadDelay 100000 -- 20 FPS
-                    i'' <- readIORef i.lines
-                    if i'' == 0 then waitForInput else loop n
-            waitForInput
+    b <- readIORef i.bytes
+    o' <- readIORef o
+    let cc = clearFromCursorToLineBeginningCode
+        donePercent = case mlen of
+            Just len -> ", " <> show (round $ b % len * 100) <> "% done"
+            Nothing -> ""
+        compressedPercent = show $ round $ (o' % max 1 i') * 100
+    hPutStr stderr $ mconcat [
+        cc,
+        "\r",
+        showChar (spinny mn) " ",
+        show o',
+        "/",
+        show i',
+        " lines out/in (",
+        compressedPercent,
+        "% original size",
+        donePercent,
+        ")"
+        ]
+    hFlush stderr
 
-
-        else do
-            b <- readIORef i.bytes
-            o' <- readIORef o
-            let cc = clearFromCursorToLineBeginningCode
-                donePercent = case mlen of
-                    Just len -> ", " <> show (round $ b % len * 100) <> "% done"
-                    Nothing -> ""
-                compressedPercent = show $ round $ (o' % max 1 i') * 100
-            T.hPutStr stderr . T.pack $ mconcat [
-                cc,
-                "\r",
-                showChar (spinny n) " ",
-                show o',
-                "/",
-                show i',
-                " lines out/in (",
-                compressedPercent,
-                "% original size",
-                donePercent,
-                ")"
-                ]
-            threadDelay 100000 -- 20 FPS
-            loop (n + 1)
-
-spinny :: Int -> Char
-spinny n = case n `mod` 4 of
+spinny :: Maybe Int -> Char
+spinny Nothing = ' '
+spinny (Just n) = case n `mod` 4 of
     0 -> '|'
     1 -> '/'
     2 -> '-'

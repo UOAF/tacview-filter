@@ -195,7 +195,7 @@ server ss serverName port = do
         listen lsock 32
         let cleanup sock addr = do
                 close sock
-                hPutStrLn stderr $ show addr <> " hung up"
+                slog $ show addr <> " hung up"
         forever $ do
             (sock, addr) <- accept lsock
             forkFinally (serve ss serverName sock addr) (const $ cleanup sock addr)

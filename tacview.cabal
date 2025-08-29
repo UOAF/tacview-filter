@@ -83,7 +83,6 @@ executable tacview-filter
                    clock,
                    optparse-applicative,
                    stm,
-                   text,
 
 executable tacview-replay
     import: exeopts

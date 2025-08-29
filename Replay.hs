@@ -35,6 +35,9 @@ main = do
 
     -- lol latency
     hSetBuffering stdout LineBuffering
+    -- lol IO
+    hSetBuffering stdin $ BlockBuffering Nothing
+    hSetBuffering stderr $ BlockBuffering Nothing
 
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
