@@ -20,6 +20,7 @@ import Data.Tacview
 import Data.Tacview.Delta
 import Data.Tacview.Ignores as Ignores
 import Data.Tacview.Source qualified as Tacview
+import Data.Tacview.Sink qualified as Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
@@ -35,16 +36,23 @@ import System.IO.Unsafe
 import System.Timeout
 
 data Args = Args {
-    zipInput :: Maybe FilePath,
+    zipOutput :: Maybe FilePath,
     port :: Word16,
-    serverName :: Text
+    serverName :: Text,
+    zipInput :: Maybe FilePath
 }
 
 parseArgs :: Parser Args
-parseArgs = Args <$> parseZipIn <*> parsePort <*> parseName where
+parseArgs = Args <$> parseZipOut <*> parsePort <*> parseName <*> parseZipIn where
     parseZipIn = optional . strArgument $ mconcat [
         help "ACMI to serve. Otherwise reads from stdin",
         metavar "recording.zip.acmi"
+        ]
+    parseZipOut = optional . strOption $ mconcat [
+        short 'o',
+        long "output",
+        help "Path to save a copy of the ACMI",
+        metavar "out.zip.acmi"
         ]
     parsePort = option auto $ mconcat [
         short 'p',
@@ -72,6 +80,7 @@ main = do
     parser >>= run
 
 data ServerState = ServerState {
+    fileStream :: Maybe (TBCQueue Text),
     -- | Connected clients, represented as a map of channels to write to,
     --   addressed by the client address (mostly so they can easily deregister themselves)
     clients :: TVar (Map SockAddr (TBCQueue Text)),
@@ -88,10 +97,31 @@ data ServerState = ServerState {
     lastWrittenTime :: IORef Double
 }
 
+withServerState :: Maybe FilePath -> (ServerState -> IO a) -> IO a
+withServerState tacOut f = do
+    clients <- newTVarIO mempty
+    globalLines <- newTVarIO mempty
+    liveObjects <- newTVarIO mempty
+    now <- newIORef 0
+    lastWrittenTime <- newIORef 0
+    -- Could probably benefit from some ContT love, but meanwhile,
+    case tacOut of
+        Nothing -> do
+            let fileStream = Nothing
+            f ServerState{..}
+        Just to -> withFileStream to $ \fs -> do
+            let fileStream = Just fs
+            f ServerState{..}
+
+withFileStream :: FilePath -> (TBCQueue Text -> IO a) -> IO a
+withFileStream tacOut f = do
+    let go q = (runSink q `catchIO` handler)
+        runSink q = Tacview.sinkZip tacOut >>= ($ q)
+        handler e = slog $ "Error writing to " <> tacOut <> ": " <> show e
+    fst <$> pipeline (newTBCQueueIO 1024) f go
+
 run :: Args -> IO ()
-run Args{..} = do
-    ss <- ServerState <$>
-        newTVarIO mempty <*> newTVarIO mempty <*> newTVarIO mempty <*> newIORef 0 <*> newIORef 0
+run Args{..} = withServerState zipOutput $ \ss -> do
     (src, _, _) <- Tacview.source zipInput
     let pipe = pipeline (newTBCQueueIO 1024)
         ignore sink = pipe src (`filterLines` sink)
@@ -100,6 +130,7 @@ run Args{..} = do
 
     -- Close all clients (now that we're not spawning any more)...
     atomically $ do
+        mapM_ closeChannel ss.fileStream
         clients <- readTVar ss.clients
         mapM_ closeChannel clients
 
@@ -123,6 +154,9 @@ slog s = withMVar stderrLock . const $ do
 writeToClients :: ServerState -> [ParsedLine] -> IO ()
 writeToClients ss pl = do
     let ts = showLine <$> pl
+    -- This might start to fail if the output file stream dies.
+    forM_ ss.fileStream $ \fs -> mapM_ (atomically . writeChannel fs) ts
+    -- Keep feeding network clients even if so.
     chans <- M.elems <$> readTVarIO ss.clients
     forM_ chans $ \c -> mapM_ (atomically . writeChannel c) ts
 

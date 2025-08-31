@@ -1,4 +1,4 @@
-module Data.Tacview.Sink (sink) where
+module Data.Tacview.Sink (sink, sinkZip) where
 
 import Codec.Archive.Zip
 import Codec.Archive.Zip.Internal qualified as ZI
@@ -27,6 +27,16 @@ sink mfp = do
         sinker src = to $ srcC src
     pure (sinker, iow)
 
+-- | Writes already-printed lines to a ZIP file without progress; useful for the server.
+sinkZip :: Channel c => FilePath -> IO (c T.Text -> IO ())
+sinkZip fp = do
+    let srcC source = repeatMC (liftIO $ atomically (readChannel source))
+            .| mapWhileC id
+            .| unlinesC
+            .| encodeUtf8C
+        sinker src = writeZip' fp $ srcC src
+    pure sinker
+
 sinkStream :: Maybe FilePath -> IO (ConduitT () BS.ByteString (ResourceT IO) () -> IO ())
 sinkStream = \case
     Nothing -> pure writeStdout
@@ -44,9 +54,12 @@ writeTxt t src = runConduitRes $ src .| sinkFile tn where
     tn = (T.unpack . T.dropEnd (length txtExt) . T.pack $ t) <> "-filtered" <> txtExt
 
 writeZip :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeZip z src = do
-    let zn = (T.unpack . T.dropEnd (length zipExt) . T.pack $ z) <> "-filtered" <> zipExt
-    withBinaryFile zn WriteMode $ \h -> do
+writeZip z = writeZip' zn where
+    zn = (T.unpack . T.dropEnd (length zipExt) . T.pack $ z) <> "-filtered" <> zipExt
+
+writeZip' :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
+writeZip' z src = do
+    withBinaryFile z WriteMode $ \h -> do
         sel <- mkEntrySelector "acmi.txt"
         let eaCompression = M.singleton sel Deflate
             eaEntryComment = M.empty
