@@ -105,6 +105,7 @@ executable tacview-server
                    containers,
                    hoare,
                    network,
+                   safe-exceptions,
                    stm,
                    text,
                    optparse-applicative,

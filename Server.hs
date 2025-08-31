@@ -5,7 +5,7 @@ import Control.Concurrent.Async
 import Control.Concurrent.Channel
 import Control.Concurrent.STM
 import Control.Concurrent.TBCQueue
-import Control.Exception
+import Control.Exception.Safe
 import Control.Monad
 import Data.ByteString qualified as BS
 import Data.IORef
@@ -25,6 +25,7 @@ import Data.Text.Encoding qualified as T
 import Data.Vector (Vector)
 import Data.Vector qualified as V
 import Data.Word
+import Foreign.StablePtr
 import Network.Socket
 import Network.Socket.ByteString qualified as NBS
 import Options.Applicative
@@ -96,15 +97,15 @@ run Args{..} = do
         piped = pipe ignore (feed ss)
     race_ piped (server ss serverName port)
 
-    -- Wait for all clients?
-    -- This fails with blocked indefinitely because
-    -- https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/
-    -- Bracket clients with a stablePtr?
-    {-
-    NO atomically $ do
-    NO  clients <- readTVar ss.clients
-    NO  check $ M.null clients
-    -}
+    -- Close all clients (now that we're not spawning any more)...
+    atomically $ do
+        clients <- readTVar ss.clients
+        mapM_ closeChannel clients
+
+    -- ...and wait for them to finish.
+    atomically $ do
+        clients <- readTVar ss.clients
+        check $ M.null clients
 
 stderrLock :: MVar ()
 stderrLock = unsafePerformIO $ newMVar ()
@@ -215,15 +216,23 @@ server ss serverName port = do
         setSocketOption lsock ReuseAddr 1
         bind lsock $ addrAddress bindAddr
         listen lsock 32
-        let cleanup sock addr = do
-                close sock
-                slog $ show addr <> " hung up"
         forever $ do
             (sock, addr) <- accept lsock
-            forkFinally (serve ss serverName sock addr) (const $ cleanup sock addr)
+            async' (serve ss serverName sock addr) >>= link
+
+async' :: IO a -> IO (Async a)
+async' f = async $ do
+    -- https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/
+    mytid <- myThreadId
+    bracket (newStablePtr mytid) freeStablePtr (const f)
 
 serve :: ServerState -> Text -> Socket -> SockAddr -> IO ()
-serve ss serverName sock who = do
+serve ss serverName sock who = c `finally` close sock where
+    c = serve' ss serverName sock who `catchIO` handler
+    handler e = slog $ show who <> " hung up: " <> show e
+
+serve' :: ServerState -> Text -> Socket -> SockAddr -> IO ()
+serve' ss serverName sock who = do
     doHandshake serverName sock who
     chan <- newTBCQueueIO 1024
     let register = atomically $ do
