@@ -12,6 +12,7 @@ import Data.Function (fix)
 import Data.IORef
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.List (partition)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Maybe
@@ -162,8 +163,20 @@ writeToClients ss pl = do
     -- This might start to fail if the output file stream dies.
     forM_ ss.fileStream $ \fs -> mapM_ (atomically . writeChannel fs) ts
     -- Keep feeding network clients even if so.
-    chans <- M.elems <$> readTVarIO ss.clients
-    forM_ chans $ \c -> mapM_ (atomically . writeChannel c) ts
+    (fulls, readies) <- atomically $ do
+        -- I want some partitionM - listing, zipping, and unlisting is dumb.
+        clients <- M.toList <$> readTVar ss.clients
+        fullStatuses <- mapM isFullChannel $ snd <$> clients
+        let clientFullPairs = zip clients fullStatuses
+            (f, r) = partition snd clientFullPairs
+            (f', r') = (M.fromList $ fst <$> f, M.fromList $ fst <$> r)
+        -- Cull full channels
+        mapM_ closeChannel f'
+        writeTVar ss.clients r'
+        pure (f', r')
+
+    forM_ (M.keys fulls) $ \k -> slog $ show k <> " dropped for not keeping up"
+    forM_ (M.elems readies) $ \c -> mapM_ (atomically . tryWriteChannel c) ts
 
 feed :: Channel c => ServerState -> c ParsedLine -> IO ()
 feed ss source = do
