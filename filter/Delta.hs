@@ -13,10 +13,17 @@ import Data.Maybe
 import Data.Tacview
 import Data.Tacview.Delta
 
+-- Let's try out Google's hashmap implementation.
+-- This could just be in ST, but we want to interleave updates to it
+-- with IO actions (writing to the output channel).
 type StateTable = HM.BasicHashTable TacId ObjectState
 
 data DeltaFilterState = DeltaFilterState {
     liveObjects :: StateTable,
+    -- If we're trying out a hashmap that's mutable in IO,
+    -- and this is hidden within a single thread,
+    -- we might as well make these mutable in IO as well.
+    -- IORef is fine since the state is isolated to one thread.
     now :: IORef Double,
     lastWrittenTime :: IORef Double
 }
@@ -70,21 +77,27 @@ processLine dfs p = let
                 writeIORef dfs.lastWrittenTime now
                 pure . Just $ TimeLine now
             else pure Nothing
+
     -- Helper to remove the object from the set we're tracking, taking the ID
     axeIt :: TacId -> IO [Maybe ParsedLine]
     axeIt x = do
         maybeTime <- writeTimestamp
         -- We might not have written in in a bit,
         -- so make sure its last known state goes out.
-        o <- HM.lookup dfs.liveObjects x
-        let co = o >>= closeOut
-        HM.delete dfs.liveObjects x
+        lo <- HM.lookup dfs.liveObjects x
+        co <- case lo of
+            Just going -> do
+                HM.delete dfs.liveObjects x
+                pure $ closeOut going
+            Nothing -> pure Nothing
         pure [PropLine x <$> co, maybeTime, Just p]
+
     -- Helper to pass the line through without doing anything, taking the time.
     passthrough :: IO [Maybe ParsedLine]
     passthrough = do
         maybeTime <- writeTimestamp
         pure [maybeTime, Just p]
+
     in case p of
         PropLine pid props -> do
             now <- readIORef dfs.now
