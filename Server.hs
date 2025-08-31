@@ -301,19 +301,21 @@ serve' ss serverName sock who = do
         -- Send the current state of the world at the time of connection.
         let glLines = V.toList gl
             loLines = (\(k, v) -> PropLine k v.osCurrent) <$> HM.toList lo
-        NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> fmap showLine loLines
+            syncBytes = T.encodeUtf8 $ T.unlines $ glLines <> fmap showLine loLines
+        NBS.sendAll sock syncBytes
+        slog $ "SYNCED " <> show who <> " (" <> show (BS.length syncBytes) <> " bytes)"
 
         -- Don't send one line at a time if we can help it;
         -- Send everything that's been queued.
         fix $ \loop -> atomically (drainChannel chan) >>= \case
-                [] -> pure ()
+                [] -> slog $ "DROP " <> show who
                 drainedLines -> do
                     NBS.sendAll sock . T.encodeUtf8 . T.unlines $ drainedLines
                     loop
 
 doHandshake :: Text -> Socket -> SockAddr ->  IO ()
 doHandshake tname sock who = do
-    slog $ "Shaking hands with " <> show who
+    slog $ show who <> " handshake"
     let sh = serverHandshake tname
     NBS.sendAll sock sh
     mresponse <- timeout (round 5e6) $ parseClientHandshake <$> rxClientHandshake sock ""
