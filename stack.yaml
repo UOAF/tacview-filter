@@ -3,5 +3,9 @@ resolver: lts-24.6
 packages:
 - .
 
+extra-deps:
+- git: https://github.com/mrkline/hoare.git
+  commit: d4246dad7429f505d413cf4bbb2d0b66455ea988
+
 ghc-options:
   "$everything": -O2

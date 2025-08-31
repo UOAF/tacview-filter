@@ -8,6 +8,7 @@ import Control.Concurrent.TBCQueue
 import Control.Exception.Safe
 import Control.Monad
 import Data.ByteString qualified as BS
+import Data.Function (fix)
 import Data.IORef
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -250,8 +251,13 @@ serve' ss serverName sock who = do
             loLines = (\(k, v) -> PropLine k v.osCurrent) <$> HM.toList lo
         NBS.sendAll sock . T.encodeUtf8 . T.unlines $ glLines <> fmap showLine loLines
 
-        -- TODO: Drain channel and send as a chunk.
-        consumeChannel chan $ \l -> NBS.sendAll sock . T.encodeUtf8 $ l <> "\n"
+        -- Don't send one line at a time if we can help it;
+        -- Send everything that's been queued.
+        fix $ \loop -> atomically (drainChannel chan) >>= \case
+                [] -> pure ()
+                drainedLines -> do
+                    NBS.sendAll sock . T.encodeUtf8 . T.unlines $ drainedLines
+                    loop
 
 doHandshake :: Text -> Socket -> SockAddr ->  IO ()
 doHandshake tname sock who = do
