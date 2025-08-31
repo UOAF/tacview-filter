@@ -74,6 +74,11 @@ main = do
     hSetNewlineMode stdout noNewlineTranslation
     hSetNewlineMode stderr noNewlineTranslation
 
+    -- lol IO
+    hSetBuffering stderr $ LineBuffering
+    hSetBuffering stdin $ BlockBuffering Nothing
+    hSetBuffering stdout $ BlockBuffering Nothing
+
     let parser = customExecParser (prefs showHelpOnError) parseInfo
         parseInfo = info (parseArgs <**> helper) $
             progDesc "Serves and filters ACMI"
