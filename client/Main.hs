@@ -14,7 +14,10 @@ import System.IO
 
 main :: IO ()
 main = do
-    hSetBuffering stdout NoBuffering
+    hSetBuffering stderr $ LineBuffering
+    hSetBuffering stdin $ BlockBuffering Nothing
+    hSetBuffering stdout $ BlockBuffering Nothing
+
     let hints = defaultHints { addrFamily = AF_UNSPEC, addrSocketType = Stream }
     addr <- head <$> getAddrInfo (Just hints) (Just "127.0.0.1" ) (Just "42674")
     bracket (openSocket addr) close $ \sock -> do
