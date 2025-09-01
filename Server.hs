@@ -293,7 +293,7 @@ serve ss serverName sock who = c `finally` close sock where
 serve' :: ServerState -> Text -> Socket -> SockAddr -> IO ()
 serve' ss serverName sock who = do
     doHandshake serverName sock who
-    chan <- newTBCQueueIO 1024
+    chan <- newTBCQueueIO 2048
     let register = atomically $ do
             -- It's important we atomically add ourselves *and* get the current state of the world.
             -- This guarantees we're synced up with everyone and ready for the next update
