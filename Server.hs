@@ -38,7 +38,7 @@ import System.Timeout
 
 data Args = Args {
     zipOutput :: Maybe FilePath,
-    port :: Word16,
+    port :: Maybe Word16,
     serverName :: Text,
     zipInput :: Maybe FilePath
 }
@@ -55,11 +55,10 @@ parseArgs = Args <$> parseZipOut <*> parsePort <*> parseName <*> parseZipIn wher
         help "Path to save a copy of the ACMI",
         metavar "out.zip.acmi"
         ]
-    parsePort = option auto $ mconcat [
+    parsePort = optional . option auto $ mconcat [
         short 'p',
         long "port",
-        help "Server port",
-        value 42674
+        help "Serve ACMI on this port (Tacview default is 42674)"
         ]
     parseName = fmap T.pack . strOption $ mconcat [
         short 'n',
@@ -132,7 +131,9 @@ run Args{..} = withServerState zipOutput $ \ss -> do
     let pipe = pipeline (newTBCQueueIO 1024)
         ignore sink = pipe src (`filterLines` sink)
         piped = pipe ignore (feed ss)
-    race_ piped (server ss serverName port)
+    case port of
+        Just p -> race_ piped (server ss serverName p)
+        Nothing -> void piped
 
     -- Close all clients (now that we're not spawning any more)...
     atomically $ do
