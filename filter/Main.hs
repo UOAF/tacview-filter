@@ -7,14 +7,11 @@ import Control.Concurrent.TBCQueue
 import Control.Exception
 import Control.Monad
 import Data.IORef
-import Data.Maybe
 import Data.Ratio
-import Data.Tacview.Annotate
 import Data.Tacview.Ignores as Ignores
-import Data.Tacview.MinId
 import Data.Tacview.Sink qualified as Tacview
-import Data.Tacview.Source (SourceProgress(..))
-import Data.Tacview.Source qualified as Tacview
+import Data.Tacview.Source
+import Data.Tacview.Ingest qualified as Tacview
 import Data.Void
 import Numeric
 import Options.Applicative
@@ -67,25 +64,19 @@ runFilter Args{..} = do
     -- Major steps are run in their own task.
     -- They filters or modify lines, then pass the remainders to the next stage of the pipe.
     -- This parallelizes trivially; the runtime runs each task in a free thread.
-    (src, mlen, readProgress) <- Tacview.source zipInput
+    (src, mlen, readProgress) <- Tacview.ingest Tacview.MinifiedIds zipInput
     (dst, linesWritten) <- Tacview.sink zipInput
     let pipe = pipeline (newTBCQueueIO 1024)
-        ignore sink = snd <$> pipe src (`filterLines` sink)
-        thenMinId sink = fst <$> pipe ignore (`minId` sink)
-        thenDeltas sink = fst <$> pipe thenMinId (`deltas` sink)
-        filterPipeline = whileIO ("in " <> fromMaybe "stdin" zipInput) $
-            fst <$> pipe thenDeltas dst
-        prog = if noProgress
-            then forever $ threadDelay maxBound
-            else progress mlen readProgress linesWritten
+        thenDeltas sink = fst <$> pipe src (`deltas` sink)
+        filterPipeline = fst <$> pipe thenDeltas dst
 
-    runnit <- race filterPipeline prog
-    printProgress mlen readProgress linesWritten Nothing -- Print 100%
-
-    -- Gather up our stats, placed in newtypes for easier readability here.
-    let (FilteredLines f) = case runnit of
-            Left l -> l
-            Right r -> absurd r
+    (FilteredLines f) <- if noProgress
+        then filterPipeline
+        else do
+            let progressThread = progress mlen readProgress linesWritten
+            fl <- either id absurd <$> race filterPipeline progressThread
+            printProgress mlen readProgress linesWritten Nothing -- Print 100%
+            pure fl
 
     end <- getTime Monotonic
     let dt = end - start
@@ -110,10 +101,10 @@ runFilter Args{..} = do
     let perSec = fromIntegral i / toRational dt
     hPutStrLn stderr $ show (round perSec :: Integer) <> " lines/second"
 
-progress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO Void
+progress :: Maybe SourceLength -> SourceProgress -> IORef Integer -> IO Void
 progress mlen i o = progress' mlen i o `onException` hPutStr stderr "\n\n"
 
-progress' :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> IO Void
+progress' :: Maybe SourceLength -> SourceProgress -> IORef Integer -> IO Void
 progress' mlen i o = do
     hPutStr stderr "waiting for input..."
     hFlush stderr
@@ -130,14 +121,14 @@ progress' mlen i o = do
 
     go 0
 
-printProgress :: Maybe Integer -> Tacview.SourceProgress -> IORef Integer -> Maybe Int -> IO ()
+printProgress :: Maybe SourceLength -> SourceProgress -> IORef Integer -> Maybe Int -> IO ()
 printProgress mlen i o mn = do
     i' <- readIORef i.lines
     b <- readIORef i.bytes
     o' <- readIORef o
     let cc = clearFromCursorToLineBeginningCode
         donePercent = case mlen of
-            Just len -> ", " <> show (round $ b % len * 100) <> "% done"
+            Just (SourceLength len) -> ", " <> show (round $ b % len * 100) <> "% done"
             Nothing -> ""
         compressedPercent = show $ round $ (o' % max 1 i') * 100
     hPutStr stderr $ mconcat [

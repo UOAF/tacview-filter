@@ -60,9 +60,7 @@ run Args{..} = do
     start <- getTime Monotonic
     (src, mlen, readProgress) <- Tacview.source zipInput
     let go = snd <$> pipeline (newTBCQueueIO 1024) src runStats
-    stats <- race go (progress mlen readProgress) >>= \case
-        Left l -> pure l
-        Right r -> absurd r
+    stats <- either id absurd <$> race go (progress mlen readProgress)
     end <- getTime Monotonic
     let dt = end - start
         dts = showFFloat (Just 2) (realToFrac dt :: Double) ""
@@ -183,7 +181,7 @@ updateTypeStats (Just dt) objType prev = M.insertWith app objType first prev whe
     app _new = appendDelta dt
     first = initStats dt
 
-progress :: Maybe Integer -> Tacview.SourceProgress -> IO Void
+progress :: Maybe Tacview.SourceLength -> Tacview.SourceProgress -> IO Void
 progress mlen i = do
     hPutStr stderr "waiting for input..."
     hFlush stderr
@@ -200,13 +198,13 @@ progress mlen i = do
 
     go 0
 
-printProgress :: Maybe Integer -> Tacview.SourceProgress -> Maybe Int -> IO ()
+printProgress :: Maybe Tacview.SourceLength -> Tacview.SourceProgress -> Maybe Int -> IO ()
 printProgress mlen i mn = do
     i' <- readIORef i.lines
     b <- readIORef i.bytes
     let cc = clearFromCursorToLineBeginningCode
         donePercent = case mlen of
-            Just len -> " (" <> show (round $ b % len * 100) <> "% done)"
+            Just (Tacview.SourceLength len) -> " (" <> show (round $ b % len * 100) <> "% done)"
             Nothing -> ""
     hPutStr stderr $ mconcat [
         cc,

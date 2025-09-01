@@ -19,8 +19,7 @@ import Data.Maybe
 import Data.Set qualified as S
 import Data.Tacview
 import Data.Tacview.Delta
-import Data.Tacview.Ignores as Ignores
-import Data.Tacview.Source qualified as Tacview
+import Data.Tacview.Ingest qualified as Tacview
 import Data.Tacview.Sink qualified as Tacview
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -40,11 +39,12 @@ data Args = Args {
     zipOutput :: Maybe FilePath,
     port :: Maybe Word16,
     serverName :: Text,
+    shouldMinify :: Tacview.ShouldMinifyIds,
     zipInput :: Maybe FilePath
 }
 
 parseArgs :: Parser Args
-parseArgs = Args <$> parseZipOut <*> parsePort <*> parseName <*> parseZipIn where
+parseArgs = Args <$> parseZipOut <*> parsePort <*> parseName <*> parseMini <*> parseZipIn where
     parseZipIn = optional . strArgument $ mconcat [
         help "ACMI to serve. Otherwise reads from stdin",
         metavar "recording.zip.acmi"
@@ -65,6 +65,11 @@ parseArgs = Args <$> parseZipOut <*> parsePort <*> parseName <*> parseZipIn wher
         long "server-name",
         help "Server name shown to Tacview clients",
         value "tacview-server"
+        ]
+    parseMini = flag Tacview.OriginalIds Tacview.MinifiedIds $ mconcat [
+        short 'm',
+        long "minify-ids",
+        help "Remap all ACMI IDs to small numbers"
         ]
 
 main :: IO ()
@@ -127,10 +132,8 @@ withFileStream tacOut f = do
 
 run :: Args -> IO ()
 run Args{..} = withServerState zipOutput $ \ss -> do
-    (src, _, _) <- Tacview.source zipInput
-    let pipe = pipeline (newTBCQueueIO 1024)
-        ignore sink = pipe src (`filterLines` sink)
-        piped = pipe ignore (feed ss)
+    (src, _, _) <- Tacview.ingest shouldMinify zipInput
+    let piped = pipeline (newTBCQueueIO 1024) src (feed ss)
     case port of
         Just p -> race_ piped (server ss serverName p)
         Nothing -> void piped
@@ -171,8 +174,10 @@ writeToClients ss pl = do
         let clientFullPairs = zip clients fullStatuses
             (f, r) = partition snd clientFullPairs
             (f', r') = (M.fromList $ fst <$> f, M.fromList $ fst <$> r)
-        -- Cull full channels
+        -- Cull full channels.
+        -- TODO: drain them too? Best to just give up on those.
         mapM_ closeChannel f'
+        -- Keep alive channels.
         writeTVar ss.clients r'
         pure (f', r')
 

@@ -9,6 +9,7 @@ import Data.ByteString qualified as BS
 import Data.IORef
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as M
+import Data.Tacview.Annotate
 import Data.Tacview (ParsedLine, showLine, zipExt, txtExt)
 import Data.Text qualified as T
 import System.IO
@@ -47,10 +48,10 @@ sinkStream = \case
             | otherwise = fail "expected a .zip.acmi or .txt.acmi file"
 
 writeStdout :: ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeStdout src = runConduitRes $ src .| sinkHandle stdout
+writeStdout src = whileIO "while writing to stdout" $ runConduitRes $ src .| sinkHandle stdout
 
 writeTxt :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeTxt t src = runConduitRes $ src .| sinkFile tn where
+writeTxt t src = whileIO ("while writing to " <> tn) $ runConduitRes $ src .| sinkFile tn where
     tn = (T.unpack . T.dropEnd (length txtExt) . T.pack $ t) <> "-filtered" <> txtExt
 
 writeZip :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
@@ -58,7 +59,7 @@ writeZip z = writeZip' zn where
     zn = (T.unpack . T.dropEnd (length zipExt) . T.pack $ z) <> "-filtered" <> zipExt
 
 writeZip' :: FilePath -> ConduitT () BS.ByteString (ResourceT IO) () -> IO ()
-writeZip' z src = do
+writeZip' z src = whileIO ("while writing to " <> z) $ do
     withBinaryFile z WriteMode $ \h -> do
         sel <- mkEntrySelector "acmi.txt"
         let eaCompression = M.singleton sel Deflate

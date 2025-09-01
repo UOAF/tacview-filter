@@ -93,7 +93,7 @@ filterLines
     => c Text
     -> c ParsedLine
     -> IO FilteredLines
-filterLines source sink = do
+filterLines source sink = whileIO "while parsing and filtering lines" $ do
     endState <- stateConsumeChannel source startState $ \ !fs l ->
         whileIO ("on line `" <> T.unpack l <> "`)") $ do
             let p = parseLine l

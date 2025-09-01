@@ -1,5 +1,6 @@
 module Data.Tacview.Source (
     source,
+    SourceLength (..),
     SourceProgress(..)
 ) where
 
@@ -13,14 +14,18 @@ import Data.ByteString qualified as BS
 import Data.IORef
 import Data.List (isSuffixOf)
 import Data.Map.Strict qualified as M
+import Data.Maybe
 import Data.Tacview (zipExt, txtExt)
+import Data.Tacview.Annotate
 import Data.Text (Text)
 import System.Directory (getFileSize)
 import System.IO
 
 type ByteConduit = ConduitT () BS.ByteString (ResourceT IO) ()
 
-sourceC :: Maybe FilePath -> IO (ByteConduit, Maybe Integer)
+newtype SourceLength = SourceLength { unLength :: Integer }
+
+sourceC :: Maybe FilePath -> IO (ByteConduit, Maybe SourceLength)
 sourceC = \case
     Nothing -> pure (readStdin, Nothing)
     Just fp -> second Just <$> go where
@@ -32,18 +37,18 @@ sourceC = \case
 readStdin :: ByteConduit
 readStdin = sourceHandle stdin
 
-readTxt :: FilePath -> IO (ByteConduit, Integer)
+readTxt :: FilePath -> IO (ByteConduit, SourceLength)
 readTxt fp = do
     len <- getFileSize fp
-    pure (sourceFile fp, len)
+    pure (sourceFile fp, SourceLength len)
 
-readZip :: FilePath -> IO (ByteConduit, Integer)
+readZip :: FilePath -> IO (ByteConduit, SourceLength)
 readZip z = withArchive z $ do
     e <- getEntries
     when (M.null e) $ error "empty ZIP archive!"
     let (sel, des) = head $ M.toList e
     src <- getEntrySource sel
-    pure (src, fromIntegral des.edUncompressedSize)
+    pure (src, SourceLength $ fromIntegral des.edUncompressedSize)
 
 data SourceProgress = SourceProgress {
     bytes:: IORef Integer,
@@ -52,7 +57,7 @@ data SourceProgress = SourceProgress {
 
 source :: Channel c
     => Maybe FilePath
-    -> IO (c Text -> IO (), Maybe Integer, SourceProgress)
+    -> IO (c Text -> IO (), Maybe SourceLength, SourceProgress)
 source mfp = do
     (srcC, len) <- sourceC mfp
     prog <- SourceProgress <$> newIORef 0 <*> newIORef 0
@@ -61,6 +66,6 @@ source mfp = do
         go c l = do
             atomically $ writeChannel' c l
             atomicModifyIORef' prog.lines $ \p -> (p + 1, ())
-        run c = runConduitRes $
+        run c = whileIO ("while reading " <> fromMaybe "stdin" mfp) $ runConduitRes $
             srcC .| iterMC countBytes .| decodeUtf8C .| linesUnboundedC .| mapM_C (liftIO . go c)
     pure (run, len, prog)

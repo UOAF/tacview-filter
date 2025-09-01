@@ -50,6 +50,7 @@ library
                      Data.Tacview
                      Data.Tacview.Delta
                      Data.Tacview.Ignores
+                     Data.Tacview.Ingest
                      Data.Tacview.MinId
                      Data.Tacview.Sink
                      Data.Tacview.Source
@@ -64,6 +65,7 @@ library
                    safe-exceptions,
                    stm,
                    text,
+                   transformers,
                    unordered-containers,
                    vector,
                    zip
