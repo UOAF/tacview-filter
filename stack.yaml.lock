@@ -3,7 +3,18 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/topics/lock_files
 
-packages: []
+packages:
+- completed:
+    commit: a898b3bfb0ac65183870e320dea29c3d4696b5c2
+    git: https://github.com/mrkline/hoare.git
+    name: hoare
+    pantry-tree:
+      sha256: e642d15c9059917fc18d88a772be29644194b237ae98d5331d837be2a75f8408
+      size: 617
+    version: 0.1.2.0
+  original:
+    commit: a898b3bfb0ac65183870e320dea29c3d4696b5c2
+    git: https://github.com/mrkline/hoare.git
 snapshots:
 - completed:
     sha256: 473840099b95facf73ec72dcafe53a2487bfadeceb03a981a19e16469503a342
