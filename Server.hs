@@ -304,12 +304,12 @@ serve' ss serverName sock who = do
             loLines = (\(k, v) -> PropLine k v.osCurrent) <$> HM.toList lo
             syncBytes = T.encodeUtf8 $ T.unlines $ glLines <> fmap showLine loLines
         NBS.sendAll sock syncBytes
-        slog $ "SYNCED " <> show who <> " (" <> show (BS.length syncBytes) <> " bytes)"
+        slog $ show who <> " synced (" <> show (length loLines) <> " objects)"
 
         -- Don't send one line at a time if we can help it;
         -- Send everything that's been queued.
         fix $ \loop -> atomically (drainChannel chan) >>= \case
-                [] -> slog $ "DROP " <> show who
+                [] -> pure ()
                 drainedLines -> do
                     NBS.sendAll sock . T.encodeUtf8 . T.unlines $ drainedLines
                     loop
