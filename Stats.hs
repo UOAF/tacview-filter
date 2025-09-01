@@ -198,7 +198,7 @@ progress mlen i = do
             threadDelay 100000
             go (n + 1)
 
-    go 0 where
+    go 0
 
 printProgress :: Maybe Integer -> Tacview.SourceProgress -> Maybe Int -> IO ()
 printProgress mlen i mn = do

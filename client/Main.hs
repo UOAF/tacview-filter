@@ -14,7 +14,7 @@ import System.IO
 
 main :: IO ()
 main = do
-    hSetBuffering stderr $ LineBuffering
+    hSetBuffering stderr LineBuffering
     hSetBuffering stdin $ BlockBuffering Nothing
     hSetBuffering stdout $ BlockBuffering Nothing
 

@@ -75,7 +75,7 @@ main = do
     hSetNewlineMode stderr noNewlineTranslation
 
     -- lol IO
-    hSetBuffering stderr $ LineBuffering
+    hSetBuffering stderr LineBuffering
     hSetBuffering stdin $ BlockBuffering Nothing
     hSetBuffering stdout $ BlockBuffering Nothing
 
@@ -120,7 +120,7 @@ withServerState tacOut f = do
 
 withFileStream :: FilePath -> (TBCQueue Text -> IO a) -> IO a
 withFileStream tacOut f = do
-    let go q = (runSink q `catchIO` handler)
+    let go q = runSink q `catchIO` handler
         runSink q = Tacview.sinkZip tacOut >>= ($ q)
         handler e = slog $ "Error writing to " <> tacOut <> ": " <> show e
     fst <$> pipeline (newTBCQueueIO 1024) f go
