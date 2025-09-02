@@ -41,7 +41,7 @@ common shared
 
 common exeopts
     import: shared
-    ghc-options: -rtsopts=all "-with-rtsopts=-N"
+    ghc-options: -rtsopts=all "-with-rtsopts=-N --io-manager=native"
 
 
 library
