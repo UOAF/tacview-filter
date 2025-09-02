@@ -30,3 +30,5 @@ jobs:
           files: |
             _build/tacview-filter.exe
             _build/tacview-replay.exe
+            _build/tacview-server.exe
+            _build/tacview-stats.exe
