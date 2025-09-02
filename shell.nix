@@ -20,10 +20,6 @@ let haskellSrc = builtins.fetchTarball "https://github.com/input-output-hk/haske
           # Some fuckery with Haskell.nix - not recognizing optional build flags?
           packages.unix.flags = { "os-string" = true; };
           packages.directory.flags = { "os-string" = true; };
-          packages.zip.flags = {
-            "disable-bzip2" = true;
-            "disable-zstd" = true;
-          };
         }
 
       ];

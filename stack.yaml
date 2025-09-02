@@ -7,5 +7,10 @@ extra-deps:
 - git: https://github.com/mrkline/hoare.git
   commit: a898b3bfb0ac65183870e320dea29c3d4696b5c2
 
+flags:
+  zip:
+    disable-bzip2: true
+    disable-zstd: true
+
 ghc-options:
   "$everything": -O2
