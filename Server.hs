@@ -138,16 +138,21 @@ run Args{..} = withServerState zipOutput $ \ss -> do
         Just p -> race_ piped (server ss serverName p)
         Nothing -> void piped
 
-    -- Close all clients (now that we're not spawning any more)...
-    atomically $ do
-        mapM_ closeChannel ss.fileStream
-        clients <- readTVar ss.clients
-        mapM_ closeChannel clients
+    case zipOutput of
+        Just zo -> slog $ "Recording done, finishing " <> zo
+        Nothing -> pure ()
+    atomically $ mapM_ closeChannel ss.fileStream
+    when (port /= Nothing) $ slog "waiting a few seconds for clients"
+    void $ timeout (round 5e6) $ do
+        -- Close all clients (now that we're not spawning any more)...
+        atomically $ do
+            clients <- readTVar ss.clients
+            mapM_ closeChannel clients
 
-    -- ...and wait for them to finish.
-    atomically $ do
-        clients <- readTVar ss.clients
-        check $ M.null clients
+        -- ...and wait for them to finish.
+        atomically $ do
+            clients <- readTVar ss.clients
+            check $ M.null clients
 
 stderrLock :: MVar ()
 stderrLock = unsafePerformIO $ newMVar ()
