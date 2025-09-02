@@ -13,7 +13,7 @@ import Network.Socket.ByteString qualified as NBS
 import System.IO
 
 main :: IO ()
-main = do
+main = withSocketsDo $ do
     hSetBuffering stderr LineBuffering
     hSetBuffering stdin $ BlockBuffering Nothing
     hSetBuffering stdout $ BlockBuffering Nothing

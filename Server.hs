@@ -73,7 +73,7 @@ parseArgs = Args <$> parseZipOut <*> parsePort <*> parseName <*> parseMini <*> p
         ]
 
 main :: IO ()
-main = do
+main = withSocketsDo $ do
     -- lol Windows
     hSetNewlineMode stdin noNewlineTranslation
     hSetNewlineMode stdout noNewlineTranslation
