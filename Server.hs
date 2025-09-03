@@ -94,6 +94,9 @@ data ServerState = ServerState {
     -- | Connected clients, represented as a map of channels to write to,
     --   addressed by the client address (mostly so they can easily deregister themselves)
     clients :: TVar (Map SockAddr (TBCQueue Text)),
+    -- | Hack: Since accept() insn't cancellable yet,
+    --         we want a way to wait for /new/ workers after we start to quit.
+    closing :: TVar Bool,
     -- | "Global" `0,...` lines that should be sent as a prologue to each client as they connect
     globalLines :: TVar (Vector Text),
     -- | Objects that should be sent to clients (after global lines) as they connect
@@ -110,6 +113,7 @@ data ServerState = ServerState {
 withServerState :: Maybe FilePath -> (ServerState -> IO a) -> IO a
 withServerState tacOut f = do
     clients <- newTVarIO mempty
+    closing <- newTVarIO False
     globalLines <- newTVarIO mempty
     liveObjects <- newTVarIO mempty
     now <- newIORef 0
@@ -135,24 +139,34 @@ run Args{..} = withServerState zipOutput $ \ss -> do
     (src, _, _) <- Tacview.ingest shouldMinify zipInput
     let piped = pipeline (newTBCQueueIO 1024) src (feed ss)
     case port of
-        Just p -> race_ piped (server ss serverName p)
+        Just p -> do
+            -- This would be a shoe-in for race_,
+            -- except the network library still isn't tied up to WinIO,
+            -- so we block indefinitely and uncancellably (that's a word, right?)
+            -- in accept().
+            async (server ss serverName p) >>= link
+            void piped
         Nothing -> void piped
 
-    case zipOutput of
-        Just zo -> slog $ "Recording done, finishing " <> zo
-        Nothing -> pure ()
-    atomically $ mapM_ closeChannel ss.fileStream
-    when (port /= Nothing) $ slog "waiting a few seconds for clients"
-    void $ timeout (round 5e6) $ do
-        -- Close all clients (now that we're not spawning any more)...
-        atomically $ do
-            clients <- readTVar ss.clients
-            mapM_ closeChannel clients
+    -- It's time to go.
+    -- Close all clients and make sure not to not wait for anyone new.
+    slog $ "End of input" <> maybe "" (\zo -> ", finishing " <> zo) zipOutput
+    atomically $ do
+        writeTVar ss.closing True
+        clients <- readTVar ss.clients
+        mapM_ closeChannel clients
 
-        -- ...and wait for them to finish.
+    -- Finish up our Zip archive.
+    -- (the reader is being run concurrently with this whole thread via withServerState)
+    atomically $ mapM_ closeChannel ss.fileStream
+
+    -- ...and wait for clients to finish.
+    when (port /= Nothing) $ slog "Waiting a for clients to finish..."
+    void $ timeout (round 5e6) $ do
         atomically $ do
             clients <- readTVar ss.clients
             check $ M.null clients
+    slog "...done"
 
 stderrLock :: MVar ()
 stderrLock = unsafePerformIO $ newMVar ()
@@ -279,6 +293,7 @@ server ss serverName port = do
     bracket (openSocket bindAddr) close $ \lsock -> do
         setSocketOption lsock ReuseAddr 1
         bind lsock $ addrAddress bindAddr
+        slog $ "Listening on port " <> show port
         listen lsock 32
         forever $ do
             (sock, addr) <- accept lsock
@@ -300,13 +315,19 @@ serve' ss serverName sock who = do
     doHandshake serverName sock who
     chan <- newTBCQueueIO 2048
     let register = atomically $ do
-            -- It's important we atomically add ourselves *and* get the current state of the world.
-            -- This guarantees we're synced up with everyone and ready for the next update
-            -- to arrive on our channel.
-            modifyTVar' ss.clients $ M.insert who chan
-            gl <- readTVar ss.globalLines
-            lo <- readTVar ss.liveObjects
-            pure (gl, lo)
+            lastCall <- readTVar ss.closing
+            if lastCall
+                then do
+                    closeTBCQueue chan
+                    pure (mempty, mempty)
+                else do
+                    -- It's important we atomically add ourselves *and* get the current state of the world.
+                    -- This guarantees we're synced up with everyone and ready for the next update
+                    -- to arrive on our channel.
+                    modifyTVar' ss.clients $ M.insert who chan
+                    gl <- readTVar ss.globalLines
+                    lo <- readTVar ss.liveObjects
+                    pure (gl, lo)
         deregister _ = atomically $ modifyTVar' ss.clients $ M.delete who
     bracket register deregister $ \(gl, lo) -> do
         -- Send the current state of the world at the time of connection.
