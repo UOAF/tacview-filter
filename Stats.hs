@@ -61,10 +61,12 @@ run Args{..} = do
     (src, mlen, readProgress) <- Tacview.source zipInput
     let go = snd <$> pipeline (newTBCQueueIO 1024) src runStats
     stats <- either id absurd <$> race go (progress mlen readProgress)
+    printProgress mlen readProgress Nothing
     end <- getTime Monotonic
     let dt = end - start
         dts = showFFloat (Just 2) (realToFrac dt :: Double) ""
     hPutStrLn stderr $ "\nin " <> dts <> " seconds"
+    hFlush stderr
     putStrLn "Update rates by type in Hz:"
     M.foldMapWithKey (\k v -> putStrLn $ showDeltaStats k v) stats.deltaStats
     putStrLn ""
