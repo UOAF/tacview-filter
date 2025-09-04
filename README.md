@@ -1,17 +1,22 @@
-# tacview-filter
+A collection of Tacview tools, including:
 
-Reads an ACMI file (from stdin, .txt.acmi, or .zip.acmi), shrinks it, and writes it out.
-Running
-```
-tacview-filter.exe cool-flight.zip.acmi
-```
-or dragging `cool-flight.zip.acmi` onto `tacview-filter.exe` in Windows Explorer
-will show progress in a terminal while writing out `cool-flight-filtered.zip.acmi`.
+- **tacview-filter** — given some `example.zip.acmi` or `example.txt.acmi`,
+  spits out a `example-filtered.zip.acmi`, shrunk by:
+  - Delta-encoding all changes to each object
+  - Decimating updates to rates suggested by https://www.tacview.net/documentation/realtime/en/
+  - Remapping all object IDs to smaller numbers.
 
-This was originally designed for BMS, but can clean up Tacview files
-from any source (DCS, IL-2, ...). While it uses a few tricks, its main
-savings come from delta-encode lines and decimating updates to the rates
-suggested on https://www.tacview.net/documentation/realtime/en/
+  This can also be used as a traditional Unix-style filter,
+  reading from `stdin` and writing to `stdout`.
+
+- **tacview-server** - does all of the above while serving the output in real-time with
+  Tacview or other compatible clients, like [OpenRadar](https://github.com/UOAF/openradar).
+
+- **tacview-replay** reads an ACMI file and writes it to `stdout` at the speed dictated
+  by its timestamps. Mostly used as a test tool for tacview-server.
+
+- **tacview-stats** gathers statistics about the counts and frequencies of different categories
+  of objects in an ACMI file. It's useful to understand what entries take up the most space.
 
 ## Obvious Quesitons
 
@@ -22,7 +27,7 @@ suggested on https://www.tacview.net/documentation/realtime/en/
   2. It's easier to ship frequent updates for a small program than for a whole video game.
      (The BMS release cadence is often many months between releases.)
 
-- **Can you ship this with BMS and have it run in the background when I exit 3D?**  
+- **Can you ship this with BMS and have it run in the background?**  
   That's a good idea. Soon™.
 
 - **Opening and saving a file in Tacview still makes it smaller than this program. Why?**  
