@@ -128,6 +128,24 @@ executable tacview-stats
                    optparse-applicative,
                    unordered-containers,
 
+executable tacview-ng
+    import: exeopts
+    main-is: NG.hs
+    build-depends: base,
+                   tacview,
+                   ansi-terminal,
+                   async,
+                   bytestring,
+                   cborg,
+                   containers,
+                   clock,
+                   half,
+                   hoare,
+                   text,
+                   optparse-applicative,
+                   unordered-containers,
+                   vector,
+
 executable test-client
     import: exeopts
     hs-source-dirs: client

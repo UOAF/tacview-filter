@@ -19,7 +19,7 @@ main = withSocketsDo $ do
     hSetBuffering stdout $ BlockBuffering Nothing
 
     let hints = defaultHints { addrFamily = AF_UNSPEC, addrSocketType = Stream }
-    addr <- head <$> getAddrInfo (Just hints) (Just "127.0.0.1" ) (Just "42674")
+    addr <- head <$> getAddrInfo (Just hints) (Just "192.168.0.77" ) (Just "42674")
     bracket (openSocket addr) close $ \sock -> do
         connect sock (addrAddress addr)
         -- Handshake:
