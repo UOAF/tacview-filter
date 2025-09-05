@@ -7,9 +7,11 @@ import Data.Char (isDigit)
 import Data.Functor.Identity
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.List (sortBy)
+import Data.Maybe
+import Data.Ord
 import Data.Set (Set)
 import Data.Set qualified as S
-import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Read qualified as T
@@ -145,7 +147,7 @@ showProperties ps = -- Finagling - get T= first
         maybeT = case ps HM.!? "T" of
             Just t -> [eqPair ("T", t)]
             Nothing -> []
-        rest = eqPair <$> HM.toList (HM.delete "T" ps)
+        rest = fmap eqPair $ sortBy (comparing fst) $ HM.toList (HM.delete "T" ps)
         eqPair (k, v) = k <> "=" <> showProperty v
 
 -- | Properties are comma-separated, with the first one being the `TacId`
